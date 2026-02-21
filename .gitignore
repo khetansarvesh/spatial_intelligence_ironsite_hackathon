@@ -46,3 +46,5 @@ Thumbs.db
 .gitignore
 ironsite-env/
 artifacts/
+
+outputs/

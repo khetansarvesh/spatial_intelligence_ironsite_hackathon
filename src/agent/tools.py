@@ -12,6 +12,7 @@ sys.path.append(str(Path(__file__).parent.parent))
 
 from temporal.session_aggregator import SessionReport, ActivitySegment
 from temporal.activity_classifier import ActivityState
+from .insights import InsightEngine
 
 
 class AgentTools:
@@ -30,6 +31,7 @@ class AgentTools:
             report: SessionReport containing all productivity data
         """
         self.report = report
+        self.insight_engine = InsightEngine(report)
 
     def get_activity_summary(
         self,
@@ -290,6 +292,45 @@ class AgentTools:
             }
         }
 
+    def generate_insights(self) -> Dict[str, Any]:
+        """
+        Generate executive-level productivity insights including trend analysis,
+        peak performance periods, and comprehensive recommendations.
+
+        Returns:
+            Dictionary with executive summary and insights
+        """
+        return self.insight_engine.generate_summary()
+
+    def detect_fatigue(self) -> Dict[str, Any]:
+        """
+        Detect behavioral fatigue by comparing first and second half of session.
+
+        Analyzes productivity drop, idle time increase, and tool switching patterns.
+
+        Returns:
+            Dictionary with fatigue analysis
+        """
+        return self.insight_engine.detect_fatigue()
+
+    def get_productivity_trend(self) -> Dict[str, Any]:
+        """
+        Analyze productivity trend over the session.
+
+        Returns:
+            Dictionary with trend direction (improving/declining/stable) and slope
+        """
+        return self.insight_engine.productivity_trend()
+
+    def get_peak_productivity_period(self) -> Dict[str, Any]:
+        """
+        Find the peak productivity period during the session.
+
+        Returns:
+            Dictionary with peak period details
+        """
+        return self.insight_engine.peak_productivity_period()
+
     # Helper methods
 
     def _format_time(self, seconds: float) -> str:
@@ -414,6 +455,38 @@ AGENT_TOOL_SCHEMAS = [
     {
         "name": "get_time_breakdown",
         "description": "Get detailed time breakdown by activity category with percentages and productivity scores.",
+        "parameters": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "generate_insights",
+        "description": "Generate executive-level productivity insights including trend analysis, peak performance periods, fatigue detection, and comprehensive recommendations.",
+        "parameters": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "detect_fatigue",
+        "description": "Detect behavioral fatigue by comparing first and second half of session. Analyzes productivity drop, idle time increase, and tool switching patterns.",
+        "parameters": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "get_productivity_trend",
+        "description": "Analyze productivity trend over the session. Returns trend direction (improving/declining/stable) with statistical slope.",
+        "parameters": {
+            "type": "object",
+            "properties": {}
+        }
+    },
+    {
+        "name": "get_peak_productivity_period",
+        "description": "Find the peak productivity period during the session with details about timing, activity, and tool used.",
         "parameters": {
             "type": "object",
             "properties": {}
