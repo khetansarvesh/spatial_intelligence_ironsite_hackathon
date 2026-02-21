@@ -1,0 +1,98 @@
+{
+  "session_duration": 600.0,
+  "start_time": 0.0,
+  "end_time": 600.0,
+  "total_frames": 18000,
+  "productivity_score": 0.82,
+  "productive_time": 492.0,
+  "idle_time": 20.0,
+  "idle_percentage": 3.3,
+  "most_used_tool": "drill",
+  "tool_switches": 3,
+  "activity_breakdown": {
+    "ACTIVE_TOOL_USE": {
+      "activity": "ACTIVE_TOOL_USE",
+      "total_time": 340.0,
+      "percentage": 56.7,
+      "segment_count": 3,
+      "average_duration": 113.3,
+      "productivity_score": 1.0
+    },
+    "PRECISION_WORK": {
+      "activity": "PRECISION_WORK",
+      "total_time": 140.0,
+      "percentage": 23.3,
+      "segment_count": 1,
+      "average_duration": 140.0,
+      "productivity_score": 1.0
+    },
+    "SEARCHING": {
+      "activity": "SEARCHING",
+      "total_time": 30.0,
+      "percentage": 5.0,
+      "segment_count": 1,
+      "average_duration": 30.0,
+      "productivity_score": 0.3
+    },
+    "TRAVELING": {
+      "activity": "TRAVELING",
+      "total_time": 30.0,
+      "percentage": 5.0,
+      "segment_count": 1,
+      "average_duration": 30.0,
+      "productivity_score": 0.2
+    },
+    "IDLE": {
+      "activity": "IDLE",
+      "total_time": 20.0,
+      "percentage": 3.3,
+      "segment_count": 1,
+      "average_duration": 20.0,
+      "productivity_score": 0.0
+    },
+    "MATERIAL_HANDLING": {
+      "activity": "MATERIAL_HANDLING",
+      "total_time": 40.0,
+      "percentage": 6.7,
+      "segment_count": 1,
+      "average_duration": 40.0,
+      "productivity_score": 0.7
+    }
+  },
+  "tool_usage": {
+    "drill": {
+      "tool_name": "drill",
+      "total_time": 240.0,
+      "usage_count": 2,
+      "average_duration": 120.0,
+      "activities": ["ACTIVE_TOOL_USE"]
+    },
+    "hammer": {
+      "tool_name": "hammer",
+      "total_time": 140.0,
+      "usage_count": 1,
+      "average_duration": 140.0,
+      "activities": ["ACTIVE_TOOL_USE"]
+    },
+    "level": {
+      "tool_name": "level",
+      "total_time": 140.0,
+      "usage_count": 1,
+      "average_duration": 140.0,
+      "activities": ["PRECISION_WORK"]
+    }
+  },
+  "insights": [
+    "High productivity session (82%)",
+    "Low idle time (3.3%) - excellent performance",
+    "Tool usage well distributed across tasks",
+    "Drill was the primary tool (40% of total tool time)",
+    "Minimal searching time indicates good organization"
+  ],
+  "recommendations": [
+    "Maintain current efficient workflow",
+    "Continue minimizing idle and search time",
+    "Consider pre-staging materials to reduce material handling time",
+    "Current tool switching pattern (3 switches) is optimal"
+  ]
+}
