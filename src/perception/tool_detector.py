@@ -142,12 +142,13 @@ class ToolDetector:
         except:
             return False
 
-    def detect(self, frame: np.ndarray) -> DetectionResult:
+    def detect(self, frame: np.ndarray, tools_only: bool = False) -> DetectionResult:
         """
         Detect tools and workpieces in a frame.
 
         Args:
             frame: BGR image from OpenCV
+            tools_only: If True, skip workpiece detection (faster)
 
         Returns:
             DetectionResult with tools and workpieces
@@ -155,7 +156,7 @@ class ToolDetector:
         if self.backend == DetectorBackend.YOLO:
             return self._detect_yolo(frame)
         else:
-            return self._detect_grounding_dino(frame)
+            return self._detect_grounding_dino(frame, tools_only=tools_only)
 
     def _detect_yolo(self, frame: np.ndarray) -> DetectionResult:
         """Detect using YOLOv8."""
@@ -199,7 +200,7 @@ class ToolDetector:
             all_detections=all_detections,
         )
 
-    def _detect_grounding_dino(self, frame: np.ndarray) -> DetectionResult:
+    def _detect_grounding_dino(self, frame: np.ndarray, tools_only: bool = False) -> DetectionResult:
         """Detect using Grounding DINO (zero-shot)."""
         from PIL import Image
         import torch
@@ -210,8 +211,11 @@ class ToolDetector:
 
         # Combine prompts
         tool_prompt = ". ".join(self.TOOLS) + "."
-        workpiece_prompt = ". ".join(self.WORKPIECES) + "."
-        full_prompt = tool_prompt + " " + workpiece_prompt
+        if tools_only:
+            full_prompt = tool_prompt
+        else:
+            workpiece_prompt = ". ".join(self.WORKPIECES) + "."
+            full_prompt = tool_prompt + " " + workpiece_prompt
 
         # Process
         inputs = self.processor(images=image, text=full_prompt, return_tensors="pt")
@@ -224,7 +228,7 @@ class ToolDetector:
         results = self.processor.post_process_grounded_object_detection(
             outputs,
             inputs["input_ids"],
-            box_threshold=self.confidence_threshold,
+            threshold=self.confidence_threshold,
             text_threshold=self.confidence_threshold,
             target_sizes=[(height, width)],
         )[0]
@@ -233,10 +237,21 @@ class ToolDetector:
         workpieces = []
         all_detections = []
 
+        # Max allowed bbox size (half of image dimensions)
+        max_bbox_width = width // 2
+        max_bbox_height = height // 2
+
         for box, score, label in zip(
             results["boxes"], results["scores"], results["labels"]
         ):
             x1, y1, x2, y2 = map(int, box.tolist())
+
+            # Filter out bounding boxes that are too large
+            bbox_width = x2 - x1
+            bbox_height = y2 - y1
+            if bbox_width > max_bbox_width or bbox_height > max_bbox_height:
+                continue
+
             center = ((x1 + x2) // 2, (y1 + y2) // 2)
 
             detection = Detection(
@@ -260,6 +275,126 @@ class ToolDetector:
             workpieces=workpieces,
             all_detections=all_detections,
         )
+
+    def detect_batch(
+        self,
+        frames: List[np.ndarray],
+        tools_only: bool = False,
+    ) -> List[DetectionResult]:
+        """
+        Detect tools and workpieces in multiple frames (batch inference).
+
+        Args:
+            frames: List of BGR images from OpenCV
+            tools_only: If True, skip workpiece detection (faster)
+
+        Returns:
+            List of DetectionResult, one per frame
+        """
+        if self.backend == DetectorBackend.YOLO:
+            # YOLO batch: process sequentially (YOLO handles its own batching)
+            return [self._detect_yolo(frame) for frame in frames]
+        else:
+            return self._detect_grounding_dino_batch(frames, tools_only=tools_only)
+
+    def _detect_grounding_dino_batch(
+        self,
+        frames: List[np.ndarray],
+        tools_only: bool = False,
+    ) -> List[DetectionResult]:
+        """Batch detection using Grounding DINO."""
+        from PIL import Image
+        import torch
+
+        if not frames:
+            return []
+
+        # Convert all frames to PIL images and track sizes
+        images = []
+        sizes = []
+        for frame in frames:
+            h, w = frame.shape[:2]
+            sizes.append((h, w))
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            images.append(Image.fromarray(rgb))
+
+        # Combine prompts
+        tool_prompt = ". ".join(self.TOOLS) + "."
+        if tools_only:
+            full_prompt = tool_prompt
+        else:
+            workpiece_prompt = ". ".join(self.WORKPIECES) + "."
+            full_prompt = tool_prompt + " " + workpiece_prompt
+
+        # Process inputs as batch
+        inputs = self.processor(
+            images=images,
+            text=[full_prompt] * len(images),
+            return_tensors="pt",
+            padding=True,
+        )
+        inputs = {k: v.to(self.model.device) for k, v in inputs.items()}
+
+        # Run inference on batch
+        with torch.no_grad():
+            outputs = self.model(**inputs)
+
+        # Post-process for each frame
+        all_results = self.processor.post_process_grounded_object_detection(
+            outputs,
+            inputs["input_ids"],
+            threshold=self.confidence_threshold,
+            text_threshold=self.confidence_threshold,
+            target_sizes=sizes,
+        )
+
+        # Format results for each frame
+        batch_results = []
+        for frame_idx, results in enumerate(all_results):
+            height, width = sizes[frame_idx]
+            max_bbox_width = width // 2
+            max_bbox_height = height // 2
+
+            tools = []
+            workpieces = []
+            all_detections = []
+
+            for box, score, label in zip(
+                results["boxes"], results["scores"], results["labels"]
+            ):
+                x1, y1, x2, y2 = map(int, box.tolist())
+
+                # Filter out bounding boxes that are too large
+                bbox_width = x2 - x1
+                bbox_height = y2 - y1
+                if bbox_width > max_bbox_width or bbox_height > max_bbox_height:
+                    continue
+
+                center = ((x1 + x2) // 2, (y1 + y2) // 2)
+
+                detection = Detection(
+                    label=label,
+                    bbox=(x1, y1, x2, y2),
+                    confidence=float(score),
+                    center=center,
+                )
+
+                all_detections.append(detection)
+
+                # Categorize
+                label_lower = label.lower()
+                if any(tool.lower() in label_lower for tool in self.TOOLS):
+                    tools.append(detection)
+                elif any(wp.lower() in label_lower for wp in self.WORKPIECES):
+                    workpieces.append(detection)
+
+            batch_results.append(DetectionResult(
+                tools=tools,
+                workpieces=workpieces,
+                all_detections=all_detections,
+            ))
+
+        return batch_results
 
     def detect_with_custom_prompts(
         self,
@@ -297,7 +432,7 @@ class ToolDetector:
         results = self.processor.post_process_grounded_object_detection(
             outputs,
             inputs["input_ids"],
-            box_threshold=self.confidence_threshold,
+            threshold=self.confidence_threshold,
             text_threshold=self.confidence_threshold,
             target_sizes=[(height, width)],
         )[0]
