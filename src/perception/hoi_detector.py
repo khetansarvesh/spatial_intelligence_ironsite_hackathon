@@ -59,6 +59,14 @@ class FrameAnalysis:
             if i.status == InteractionStatus.WORKING
         ]
 
+    def has_active_interaction(self) -> bool:
+        """Check if there's an active interaction (alias for is_working)."""
+        return self.is_working()
+
+    def get_held_tools(self) -> List[str]:
+        """Get list of tools being held/used (alias for get_active_tools)."""
+        return self.get_active_tools()
+
 
 class HOIDetector:
     """

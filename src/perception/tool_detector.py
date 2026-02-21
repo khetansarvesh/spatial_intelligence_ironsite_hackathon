@@ -45,20 +45,30 @@ class ToolDetector:
     2. YOLOv8 (requires training/fine-tuning, faster)
     """
 
-    # Construction tools to detect
+    # Construction tools to detect (focused list - Grounding DINO has 256 token limit)
     TOOLS = [
-        "drill",
-        "hammer",
-        "screwdriver",
-        "wrench",
-        "measuring tape",
-        "level",
-        "saw",
-        "pliers",
-        "nail gun",
-        "screw gun",
-        "power tool",
-        "hand tool",
+        # Power tools
+        "drill", "circular saw", "angle grinder", "nail gun", "screw gun",
+
+        # Hand tools
+        "hammer", "screwdriver", "wrench", "pliers", "chisel",
+        "utility knife", "pry bar", "crowbar",
+
+        # Measuring
+        "tape measure", "level", "square",
+
+        # Masonry tools
+        "trowel", "float", "jointer", "hawk",
+        "brick", "mortar",
+
+        # Concrete
+        "screed", "tamper", "edger",
+
+        # Painting
+        "paint brush", "paint roller", "putty knife", "scraper", "caulk gun",
+
+        # Electrical/Plumbing
+        "wire stripper", "pipe wrench", "torch",
     ]
 
     # Workpieces/materials to detect
