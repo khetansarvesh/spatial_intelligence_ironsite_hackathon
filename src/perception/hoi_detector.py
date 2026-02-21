@@ -1,6 +1,8 @@
 """
-Hand-Object Interaction (HOI) Detection Module (P1 + P2)
+Hand-Object Interaction (HOI) Detection Module
 Combines hand detection and tool detection to determine interactions.
+
+Updated to work with Grounding DINO-based detectors.
 """
 
 from dataclasses import dataclass, field
@@ -8,28 +10,27 @@ from typing import List, Optional, Tuple, Dict, Any
 from enum import Enum
 import numpy as np
 import math
+import cv2
 
-from .hand_detector import HandDetector, HandResult
+from .hand_detector import HandDetector, HandResult, filter_gloves_by_fingers, compute_iou
 from .tool_detector import ToolDetector, Detection, DetectionResult, DetectorBackend
 
 
 class InteractionStatus(Enum):
-    HOLDING = "holding"
-    REACHING = "reaching"
-    NEAR = "near"
-    NONE = "none"
+    WORKING = "working"  # Hand is interacting with tool (IOU > 0 or close distance)
+    IDLE = "idle"        # No interaction
 
 
 @dataclass
 class Interaction:
     """Represents an interaction between a hand and an object."""
-    hand_side: str  # "left" | "right"
     hand_id: int
     object_label: str
     object_bbox: Tuple[int, int, int, int]
     status: InteractionStatus
     confidence: float
     distance_pixels: float
+    iou: float  # Overlap between hand and tool
 
 
 @dataclass
@@ -39,26 +40,23 @@ class FrameAnalysis:
     frame_index: int
     hands: List[HandResult]
     tools: List[Detection]
-    workpieces: List[Detection]
     interactions: List[Interaction]
     primary_tool: Optional[str] = None  # Main tool being used
-    primary_workpiece: Optional[str] = None  # Main workpiece being worked on
-    camera_motion: Optional[str] = None  # Will be filled by motion analyzer
     metadata: Dict[str, Any] = field(default_factory=dict)
 
-    def has_active_interaction(self) -> bool:
-        """Check if there's any active tool interaction."""
+    def is_working(self) -> bool:
+        """Check if worker is actively working with any tool."""
         return any(
-            i.status == InteractionStatus.HOLDING
+            i.status == InteractionStatus.WORKING
             for i in self.interactions
         )
 
-    def get_held_tools(self) -> List[str]:
-        """Get list of tools currently being held."""
+    def get_active_tools(self) -> List[str]:
+        """Get list of tools currently being worked with."""
         return [
             i.object_label
             for i in self.interactions
-            if i.status == InteractionStatus.HOLDING
+            if i.status == InteractionStatus.WORKING
         ]
 
 
@@ -66,37 +64,35 @@ class HOIDetector:
     """
     Detects Hand-Object Interactions by combining hand and tool detection.
 
-    The key insight: In egocentric video, if a tool's bounding box overlaps
-    significantly with the hand region (especially fingertips), the worker
-    is likely holding that tool.
+    Uses Grounding DINO for both hand (glove) and tool detection.
+    Hands are filtered using finger detection for accuracy.
     """
 
-    # Distance thresholds (in pixels, will be scaled by frame size)
-    HOLDING_THRESHOLD = 50  # Tool center within this distance of fingertips
-    REACHING_THRESHOLD = 150  # Hand moving toward tool
-    NEAR_THRESHOLD = 300  # Tool in general vicinity
+    # Distance threshold (in pixels, will be scaled by frame size)
+    WORKING_DISTANCE = 100  # If IOU=0, tool center within this distance = working
 
     def __init__(
         self,
-        hand_detector: Optional[HandDetector] = None,
-        tool_detector: Optional[ToolDetector] = None,
-        holding_threshold: float = None,
+        hand_confidence: float = 0.25,
+        tool_confidence: float = 0.25,
+        working_distance: float = None,
     ):
         """
         Initialize HOI detector.
 
         Args:
-            hand_detector: HandDetector instance (created if None)
-            tool_detector: ToolDetector instance (created if None)
-            holding_threshold: Custom threshold for "holding" detection
+            hand_confidence: Confidence threshold for hand detection
+            tool_confidence: Confidence threshold for tool detection
+            working_distance: Distance threshold for WORKING status when IOU=0
         """
-        self.hand_detector = hand_detector or HandDetector()
-        self.tool_detector = tool_detector or ToolDetector(
-            backend=DetectorBackend.YOLO
+        self.hand_detector = HandDetector(confidence_threshold=hand_confidence)
+        self.tool_detector = ToolDetector(
+            backend=DetectorBackend.GROUNDING_DINO,
+            confidence_threshold=tool_confidence,
         )
 
-        if holding_threshold:
-            self.HOLDING_THRESHOLD = holding_threshold
+        if working_distance:
+            self.WORKING_DISTANCE = working_distance
 
         self.frame_count = 0
 
@@ -117,88 +113,64 @@ class HOIDetector:
         """
         height, width = frame.shape[:2]
 
-        # Scale thresholds based on frame size
+        # Scale distance threshold based on frame size
         scale = min(width, height) / 640  # Normalize to 640px base
-        holding_thresh = self.HOLDING_THRESHOLD * scale
-        reaching_thresh = self.REACHING_THRESHOLD * scale
-        near_thresh = self.NEAR_THRESHOLD * scale
+        working_dist = self.WORKING_DISTANCE * scale
 
-        # Detect hands
-        hands = self.hand_detector.detect(frame)
+        # Detect hands (gloves) with finger filtering
+        gloves = self.hand_detector.detect(frame)
+        fingers = self.hand_detector.detect_fingers(frame)
+        hands, _ = filter_gloves_by_fingers(gloves, fingers, min_avg_iou=0.05)
 
-        # Detect tools and workpieces
-        detections = self.tool_detector.detect(frame)
+        # Detect tools (skip workpieces for speed)
+        detections = self.tool_detector.detect(frame, tools_only=True)
+        tools = detections.tools
 
         # Find interactions
         interactions = []
 
         for hand in hands:
-            # Get fingertip positions
-            fingertips = list(hand.fingertip_positions.values())
-            wrist = self.hand_detector.get_wrist_position(hand)
+            hand_center = hand.center
 
-            # Calculate hand center (average of fingertips)
-            hand_center = (
-                sum(f[0] for f in fingertips) / len(fingertips),
-                sum(f[1] for f in fingertips) / len(fingertips),
-            )
+            for tool in tools:
+                # Calculate IOU (overlap)
+                iou = compute_iou(hand.bbox, tool.bbox)
 
-            # Check interaction with each tool
-            for tool in detections.tools:
-                # Calculate distances
-                distance_to_center = self._distance(hand_center, tool.center)
+                # Calculate distance between centers
+                distance = self._distance(hand_center, tool.center)
 
-                # Check if any fingertip is inside or very close to tool bbox
-                fingertips_near = sum(
-                    1 for f in fingertips
-                    if self._point_near_bbox(f, tool.bbox, holding_thresh)
-                )
-
-                # Determine interaction status
-                if fingertips_near >= 2 or distance_to_center < holding_thresh:
-                    status = InteractionStatus.HOLDING
-                    confidence = min(1.0, (fingertips_near / 3) + (1 - distance_to_center / holding_thresh) * 0.5)
-                elif distance_to_center < reaching_thresh:
-                    status = InteractionStatus.REACHING
-                    confidence = 1 - (distance_to_center - holding_thresh) / (reaching_thresh - holding_thresh)
-                elif distance_to_center < near_thresh:
-                    status = InteractionStatus.NEAR
-                    confidence = 1 - (distance_to_center - reaching_thresh) / (near_thresh - reaching_thresh)
+                # Determine interaction status:
+                # - IOU > 0 means WORKING (bounding boxes overlap)
+                # - IOU = 0 but distance < threshold means WORKING
+                # - Otherwise IDLE (no interaction recorded)
+                if iou > 0:
+                    status = InteractionStatus.WORKING
+                    confidence = min(1.0, iou * 5)  # Scale IOU to confidence
+                elif distance < working_dist:
+                    status = InteractionStatus.WORKING
+                    confidence = 1 - (distance / working_dist)
                 else:
-                    continue  # Too far, no interaction
+                    continue  # IDLE - no interaction with this tool
 
                 interactions.append(Interaction(
-                    hand_side=hand.side,
                     hand_id=hand.hand_id,
                     object_label=tool.label,
                     object_bbox=tool.bbox,
                     status=status,
                     confidence=max(0, min(1, confidence)),
-                    distance_pixels=distance_to_center,
+                    distance_pixels=distance,
+                    iou=iou,
                 ))
 
-        # Determine primary tool (highest confidence HOLDING interaction)
-        holding_interactions = [
+        # Determine primary tool (highest confidence WORKING interaction)
+        working_interactions = [
             i for i in interactions
-            if i.status == InteractionStatus.HOLDING
+            if i.status == InteractionStatus.WORKING
         ]
         primary_tool = None
-        if holding_interactions:
-            best = max(holding_interactions, key=lambda x: x.confidence)
+        if working_interactions:
+            best = max(working_interactions, key=lambda x: x.confidence)
             primary_tool = best.object_label
-
-        # Determine primary workpiece (closest to hand center)
-        primary_workpiece = None
-        if hands and detections.workpieces:
-            hand_center = (
-                sum(h.bbox[0] + h.bbox[2] for h in hands) / (2 * len(hands)),
-                sum(h.bbox[1] + h.bbox[3] for h in hands) / (2 * len(hands)),
-            )
-            closest_wp = min(
-                detections.workpieces,
-                key=lambda wp: self._distance(hand_center, wp.center)
-            )
-            primary_workpiece = closest_wp.label
 
         self.frame_count += 1
 
@@ -206,11 +178,9 @@ class HOIDetector:
             timestamp=timestamp,
             frame_index=self.frame_count,
             hands=hands,
-            tools=detections.tools,
-            workpieces=detections.workpieces,
+            tools=tools,
             interactions=interactions,
             primary_tool=primary_tool,
-            primary_workpiece=primary_workpiece,
         )
 
     def _distance(
@@ -220,27 +190,6 @@ class HOIDetector:
     ) -> float:
         """Euclidean distance between two points."""
         return math.sqrt((p1[0] - p2[0])**2 + (p1[1] - p2[1])**2)
-
-    def _point_near_bbox(
-        self,
-        point: Tuple[float, float],
-        bbox: Tuple[int, int, int, int],
-        threshold: float,
-    ) -> bool:
-        """Check if point is inside or near bounding box."""
-        x, y = point
-        x1, y1, x2, y2 = bbox
-
-        # Check if inside
-        if x1 <= x <= x2 and y1 <= y <= y2:
-            return True
-
-        # Check distance to nearest edge
-        nearest_x = max(x1, min(x, x2))
-        nearest_y = max(y1, min(y, y2))
-        distance = self._distance((x, y), (nearest_x, nearest_y))
-
-        return distance < threshold
 
     def draw_analysis(
         self,
@@ -259,74 +208,73 @@ class HOIDetector:
         """
         annotated = frame.copy()
 
-        # Draw hands
-        annotated = self.hand_detector.draw_landmarks(
-            annotated, analysis.hands, draw_bbox=True
-        )
+        HAND_COLOR = (0, 255, 0)      # Green
+        TOOL_COLOR = (0, 165, 255)    # Orange
+        WORKING_COLOR = (0, 0, 255)   # Red - tool being worked with
 
-        # Draw tools
-        TOOL_COLOR = (0, 165, 255)  # Orange
-        for tool in analysis.tools:
-            x1, y1, x2, y2 = tool.bbox
-            cv2.rectangle(annotated, (x1, y1), (x2, y2), TOOL_COLOR, 2)
+        # Draw hands
+        for hand in analysis.hands:
+            x1, y1, x2, y2 = hand.bbox
+            cv2.rectangle(annotated, (x1, y1), (x2, y2), HAND_COLOR, 2)
             cv2.putText(
                 annotated,
-                f"{tool.label}",
-                (x1, y1 - 10),
+                f"hand ({hand.confidence:.2f})",
+                (x1, y1 - 5),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.5,
-                TOOL_COLOR,
+                HAND_COLOR,
+                2,
+            )
+            cv2.circle(annotated, hand.center, 4, HAND_COLOR, -1)
+
+        # Draw tools
+        for tool in analysis.tools:
+            x1, y1, x2, y2 = tool.bbox
+            # Check if this tool is being worked with
+            is_working = any(
+                i.object_bbox == tool.bbox and i.status == InteractionStatus.WORKING
+                for i in analysis.interactions
+            )
+            color = WORKING_COLOR if is_working else TOOL_COLOR
+
+            cv2.rectangle(annotated, (x1, y1), (x2, y2), color, 2)
+            cv2.putText(
+                annotated,
+                f"{tool.label} ({tool.confidence:.2f})",
+                (x1, y2 + 15),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.5,
+                color,
                 2,
             )
 
-        # Draw workpieces
-        WORKPIECE_COLOR = (255, 165, 0)  # Blue
-        for wp in analysis.workpieces:
-            x1, y1, x2, y2 = wp.bbox
-            cv2.rectangle(annotated, (x1, y1), (x2, y2), WORKPIECE_COLOR, 1)
-
-        # Draw interaction lines
+        # Draw interaction lines for WORKING status
         for interaction in analysis.interactions:
-            if interaction.status == InteractionStatus.HOLDING:
-                color = (0, 255, 0)  # Green
-                thickness = 3
-            elif interaction.status == InteractionStatus.REACHING:
-                color = (0, 255, 255)  # Yellow
-                thickness = 2
-            else:
-                color = (128, 128, 128)  # Gray
-                thickness = 1
-
-            # Find the hand
-            hand = next(
-                (h for h in analysis.hands if h.hand_id == interaction.hand_id),
-                None
-            )
-            if hand:
-                # Draw line from hand center to object center
-                hand_center = (
-                    (hand.bbox[0] + hand.bbox[2]) // 2,
-                    (hand.bbox[1] + hand.bbox[3]) // 2,
+            if interaction.status == InteractionStatus.WORKING:
+                # Find the hand
+                hand = next(
+                    (h for h in analysis.hands if h.hand_id == interaction.hand_id),
+                    None
                 )
-                obj_center = (
-                    (interaction.object_bbox[0] + interaction.object_bbox[2]) // 2,
-                    (interaction.object_bbox[1] + interaction.object_bbox[3]) // 2,
-                )
-                cv2.line(annotated, hand_center, obj_center, color, thickness)
+                if hand:
+                    obj_center = (
+                        (interaction.object_bbox[0] + interaction.object_bbox[2]) // 2,
+                        (interaction.object_bbox[1] + interaction.object_bbox[3]) // 2,
+                    )
+                    cv2.line(annotated, hand.center, obj_center, WORKING_COLOR, 2)
 
         # Draw status overlay
-        status_text = []
-        if analysis.primary_tool:
-            status_text.append(f"Tool: {analysis.primary_tool}")
-        if analysis.primary_workpiece:
-            status_text.append(f"Working on: {analysis.primary_workpiece}")
-        if analysis.has_active_interaction():
-            status_text.append("Status: ACTIVE")
+        status_lines = []
+        if analysis.is_working():
+            active_tools = analysis.get_active_tools()
+            status_lines.append(f"WORKING: {', '.join(active_tools)}")
         else:
-            status_text.append("Status: IDLE")
+            status_lines.append("IDLE")
+
+        status_lines.append(f"Hands: {len(analysis.hands)} | Tools: {len(analysis.tools)}")
 
         y_offset = 30
-        for text in status_text:
+        for text in status_lines:
             cv2.putText(
                 annotated,
                 text,
@@ -340,29 +288,37 @@ class HOIDetector:
 
         return annotated
 
-
-# Need cv2 for drawing
-import cv2
+    def close(self):
+        """Release resources."""
+        self.hand_detector.close()
 
 
 # Quick test
 if __name__ == "__main__":
+    from pathlib import Path
+
+    project_root = Path(__file__).parent.parent.parent
+    video_path = project_root / "data" / "videos" / "07_production_mp.mp4"
+
+    print(f"Testing HOI detector on: {video_path}")
+
     detector = HOIDetector()
+    cap = cv2.VideoCapture(str(video_path))
 
-    cap = cv2.VideoCapture(0)
-
-    while cap.isOpened():
+    frame_idx = 0
+    while cap.isOpened() and frame_idx < 10:
         ret, frame = cap.read()
         if not ret:
             break
 
-        analysis = detector.analyze_frame(frame, timestamp=cap.get(cv2.CAP_PROP_POS_MSEC) / 1000)
-        annotated = detector.draw_analysis(frame, analysis)
+        if frame_idx % 5 == 0:  # Every 5th frame
+            analysis = detector.analyze_frame(frame, timestamp=frame_idx / 5.0)
+            status = "WORKING" if analysis.is_working() else "IDLE"
+            print(f"Frame {frame_idx}: {len(analysis.hands)} hands, {len(analysis.tools)} tools, "
+                  f"{status}: {analysis.get_active_tools()}")
 
-        cv2.imshow("HOI Detection", annotated)
-
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+        frame_idx += 1
 
     cap.release()
-    cv2.destroyAllWindows()
+    detector.close()
+    print("Done!")

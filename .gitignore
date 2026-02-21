@@ -40,3 +40,9 @@ uploads/
 # OS
 .DS_Store
 Thumbs.db
+
+.pytest_cache
+.ruff_cache
+.gitignore
+ironsite-env/
+artifacts/
