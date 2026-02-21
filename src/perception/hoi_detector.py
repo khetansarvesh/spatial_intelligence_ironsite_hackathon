@@ -272,6 +272,25 @@ class HOIDetector:
             status_lines.append("IDLE")
 
         status_lines.append(f"Hands: {len(analysis.hands)} | Tools: {len(analysis.tools)}")
+        # Draw concise overlay: keep only the two most important signals.
+        status_text = []
+        wearer_status = analysis.metadata.get("wearer_productivity_status")
+        if wearer_status:
+            status_text.append(f"Status: {wearer_status}")
+        else:
+            status_text.append("Status: ACTIVE" if analysis.has_active_interaction() else "Status: IDLE")
+        task_name = analysis.metadata.get("task_name")
+        if task_name:
+            status_text.append(f"Task: {task_name}")
+        scene = analysis.metadata.get("scene")
+        scene_conf = analysis.metadata.get("scene_confidence")
+        if scene:
+            if isinstance(scene_conf, (int, float)):
+                status_text.append(f"Scene: {scene} ({scene_conf:.2f})")
+            else:
+                status_text.append(f"Scene: {scene}")
+        if analysis.camera_motion:
+            status_text.append(f"Motion: {analysis.camera_motion}")
 
         y_offset = 30
         for text in status_lines:

@@ -59,6 +59,14 @@ class ToolDetector:
         "screw gun",
         "power tool",
         "hand tool",
+        # Masonry-specific tools
+        "trowel",
+        "masonry trowel",
+        "mortar board",
+        "mason line",
+        "leveling tool",
+        "grout bag",
+        "float",
     ]
 
     # Workpieces/materials to detect
@@ -76,13 +84,26 @@ class ToolDetector:
         "screw",
         "nail",
         "bracket",
+        # Masonry-specific materials/workpieces
+        "brick",
+        "block",
+        "cinder block",
+        "concrete block",
+        "cmu",
+        "mortar",
+        "grout",
+        "rebar",
+        "masonry wall",
+        "masonry unit",
     ]
 
     def __init__(
         self,
         backend: DetectorBackend = DetectorBackend.YOLO,
-        confidence_threshold: float = 0.3,
-        device: str = "cuda",  # or "cpu"
+        confidence_threshold: float = 0.2,
+        text_threshold: float = 0.15,
+        min_bbox_area: int = 300,
+        device: str = "auto",  # "auto" | "mps" | "cuda" | "cpu"
     ):
         """
         Initialize tool detector.
@@ -90,10 +111,14 @@ class ToolDetector:
         Args:
             backend: Which detection backend to use
             confidence_threshold: Minimum confidence for detections
-            device: Device to run inference on
+            text_threshold: Text matching threshold for Grounding DINO
+            min_bbox_area: Minimum bounding box area to keep detection
+            device: Device to run inference on (auto prefers mps on Mac, then cuda, then cpu)
         """
         self.backend = backend
         self.confidence_threshold = confidence_threshold
+        self.text_threshold = text_threshold
+        self.min_bbox_area = min_bbox_area
         self.device = device
         self.model = None
 
@@ -126,8 +151,10 @@ class ToolDetector:
             model_id = "IDEA-Research/grounding-dino-tiny"
             self.processor = AutoProcessor.from_pretrained(model_id)
             self.model = AutoModelForZeroShotObjectDetection.from_pretrained(model_id)
-            self.model.to(self.device if self.device != "cuda" or self._has_cuda() else "cpu")
-            print("Loaded Grounding DINO model")
+            resolved_device = self._resolve_device(self.device)
+            self.model.to(resolved_device)
+            self.device = resolved_device
+            print(f"Loaded Grounding DINO model on {resolved_device}")
         except Exception as e:
             print(f"Failed to load Grounding DINO: {e}")
             print("Falling back to YOLO")
@@ -143,6 +170,30 @@ class ToolDetector:
             return False
 
     def detect(self, frame: np.ndarray, tools_only: bool = False) -> DetectionResult:
+    def _has_mps(self) -> bool:
+        """Check if Apple Metal (MPS) is available."""
+        try:
+            import torch
+            return bool(getattr(torch.backends, "mps", None)) and torch.backends.mps.is_available()
+        except:
+            return False
+
+    def _resolve_device(self, requested_device: str) -> str:
+        """Resolve requested device to an available backend."""
+        req = (requested_device or "auto").lower()
+        if req == "auto":
+            if self._has_mps():
+                return "mps"
+            if self._has_cuda():
+                return "cuda"
+            return "cpu"
+        if req == "mps":
+            return "mps" if self._has_mps() else "cpu"
+        if req == "cuda":
+            return "cuda" if self._has_cuda() else "cpu"
+        return "cpu"
+
+    def detect(self, frame: np.ndarray) -> DetectionResult:
         """
         Detect tools and workpieces in a frame.
 
@@ -225,13 +276,32 @@ class ToolDetector:
             outputs = self.model(**inputs)
 
         # Post-process
-        results = self.processor.post_process_grounded_object_detection(
-            outputs,
-            inputs["input_ids"],
-            threshold=self.confidence_threshold,
-            text_threshold=self.confidence_threshold,
-            target_sizes=[(height, width)],
-        )[0]
+        # results = self.processor.post_process_grounded_object_detection(
+        #     outputs,
+        #     inputs["input_ids"],
+        #     threshold=self.confidence_threshold,
+        #     text_threshold=self.confidence_threshold,
+        #     target_sizes=[(height, width)],
+        # )[0]
+        # transformers API compatibility:
+        # - newer versions use `threshold`
+        # - older versions used `box_threshold`
+        try:
+            results = self.processor.post_process_grounded_object_detection(
+                outputs,
+                inputs["input_ids"],
+                threshold=self.confidence_threshold,
+                text_threshold=self.text_threshold,
+                target_sizes=[(height, width)],
+            )[0]
+        except TypeError:
+            results = self.processor.post_process_grounded_object_detection(
+                outputs,
+                inputs["input_ids"],
+                box_threshold=self.confidence_threshold,
+                text_threshold=self.text_threshold,
+                target_sizes=[(height, width)],
+            )[0]
 
         tools = []
         workpieces = []
@@ -261,13 +331,18 @@ class ToolDetector:
                 center=center,
             )
 
+            # Basic noise filtering for low-quality / tiny boxes
+            area = max(0, (x2 - x1)) * max(0, (y2 - y1))
+            if area < self.min_bbox_area:
+                continue
+
             all_detections.append(detection)
 
-            # Categorize
-            label_lower = label.lower()
-            if any(tool.lower() in label_lower for tool in self.TOOLS):
+            # Categorize (normalized match)
+            label_lower = label.lower().strip()
+            if self._matches_any(label_lower, self.TOOLS):
                 tools.append(detection)
-            elif any(wp.lower() in label_lower for wp in self.WORKPIECES):
+            elif self._matches_any(label_lower, self.WORKPIECES):
                 workpieces.append(detection)
 
         return DetectionResult(
@@ -429,13 +504,29 @@ class ToolDetector:
         with torch.no_grad():
             outputs = self.model(**inputs)
 
-        results = self.processor.post_process_grounded_object_detection(
-            outputs,
-            inputs["input_ids"],
-            threshold=self.confidence_threshold,
-            text_threshold=self.confidence_threshold,
-            target_sizes=[(height, width)],
-        )[0]
+        # results = self.processor.post_process_grounded_object_detection(
+        #     outputs,
+        #     inputs["input_ids"],
+        #     threshold=self.confidence_threshold,
+        #     text_threshold=self.confidence_threshold,
+        #     target_sizes=[(height, width)],
+        # )[0]
+        try:
+            results = self.processor.post_process_grounded_object_detection(
+                outputs,
+                inputs["input_ids"],
+                threshold=self.confidence_threshold,
+                text_threshold=self.text_threshold,
+                target_sizes=[(height, width)],
+            )[0]
+        except TypeError:
+            results = self.processor.post_process_grounded_object_detection(
+                outputs,
+                inputs["input_ids"],
+                box_threshold=self.confidence_threshold,
+                text_threshold=self.text_threshold,
+                target_sizes=[(height, width)],
+            )[0]
 
         detections = []
         for box, score, label in zip(
@@ -450,6 +541,15 @@ class ToolDetector:
             ))
 
         return detections
+
+    def _matches_any(self, label: str, candidates: List[str]) -> bool:
+        """Robust phrase match for noisy zero-shot labels."""
+        normalized = label.replace("-", " ").replace("_", " ")
+        for c in candidates:
+            cc = c.lower().replace("-", " ").replace("_", " ")
+            if cc in normalized or normalized in cc:
+                return True
+        return False
 
     def draw_detections(
         self,

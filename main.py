@@ -11,20 +11,28 @@ Usage:
 import argparse
 import json
 import time
+from collections import Counter
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 import cv2
 import numpy as np
 from tqdm import tqdm
 
 # Import our modules
-from src.perception import HOIDetector, HandDetector, ToolDetector, DetectorBackend
+from src.perception import (
+    HOIDetector,
+    HandDetector,
+    ToolDetector,
+    DetectorBackend,
+    SceneClassifier,
+)
 from src.temporal import (
     MotionAnalyzer,
     ActivityClassifier,
     SessionAggregator,
     SessionReport,
 )
+from src.agent.task_classifier import TaskClassifier
 
 
 class SiteIQPipeline:
@@ -75,9 +83,11 @@ class SiteIQPipeline:
         if self.verbose:
             print(f"  Loading tool detector ({detector_backend})...")
         backend = DetectorBackend.YOLO if detector_backend == "yolo" else DetectorBackend.GROUNDING_DINO
+        # Grounding DINO tends to need lower thresholds in egocentric construction footage.
+        detector_conf = 0.18 if backend == DetectorBackend.GROUNDING_DINO else 0.25
         tool_detector = ToolDetector(
             backend=backend,
-            confidence_threshold=0.3,
+            confidence_threshold=detector_conf,
         )
 
         self.hoi_detector = HOIDetector(hand_detector, tool_detector)
@@ -97,6 +107,15 @@ class SiteIQPipeline:
         if self.verbose:
             print("  Initializing session aggregator...")
         self.session_aggregator = SessionAggregator()
+
+        if self.verbose:
+            print("  Initializing scene classifier...")
+        self.scene_classifier = SceneClassifier()
+
+        if self.verbose:
+            print("  Initializing task classifier...")
+        # Uses deterministic fallback unless provider/api key is configured.
+        self.task_classifier = TaskClassifier()
 
         if self.verbose:
             print("✓ Pipeline initialized successfully!\n")
@@ -184,6 +203,20 @@ class SiteIQPipeline:
                 # HOI detection
                 frame_analysis = self.hoi_detector.analyze_frame(frame, timestamp)
 
+                # Scene context classification
+                detected_labels = (
+                    [d.label for d in frame_analysis.tools]
+                    + [d.label for d in frame_analysis.workpieces]
+                )
+                scene_result = self.scene_classifier.classify_scene_with_confidence(detected_labels)
+                frame_analysis.metadata["scene"] = scene_result.scene
+                frame_analysis.metadata["scene_confidence"] = scene_result.confidence
+                frame_analysis.metadata["scene_matches"] = scene_result.matched_objects
+                if frame_analysis.primary_tool:
+                    frame_analysis.metadata["tool_scene_valid"] = self.scene_classifier.validate_tool_for_scene(
+                        frame_analysis.primary_tool, scene_result.scene
+                    )
+
                 # Motion analysis (if we have enough frames)
                 if len(frames_buffer) >= 2:
                     motion_result = self.motion_analyzer.analyze(frames_buffer)
@@ -195,6 +228,39 @@ class SiteIQPipeline:
                         MotionType.UNKNOWN, 0.0, 0.0, None, None, {}
                     )
 
+                # Frame-level task classification
+                interaction_status = "none"
+                if any(i.status.value == "holding" for i in frame_analysis.interactions):
+                    interaction_status = "holding"
+                elif any(i.status.value == "reaching" for i in frame_analysis.interactions):
+                    interaction_status = "reaching"
+                elif frame_analysis.interactions:
+                    interaction_status = "near"
+
+                task_evidence = {
+                    "objects": [d.label for d in frame_analysis.tools] + [d.label for d in frame_analysis.workpieces],
+                    "tools": [d.label for d in frame_analysis.tools],
+                    "motion": motion_result.motion_type.value,
+                    "interaction": interaction_status,
+                    "scene": frame_analysis.metadata.get("scene", "unknown"),
+                    "primary_tool": frame_analysis.primary_tool,
+                    "primary_workpiece": frame_analysis.primary_workpiece,
+                }
+                task_result = self.task_classifier.classify(task_evidence)
+                frame_analysis.metadata["task_trade"] = task_result["trade"]
+                frame_analysis.metadata["task_family"] = task_result["task_family"]
+                frame_analysis.metadata["task_name"] = task_result["task_name"]
+                frame_analysis.metadata["task_confidence"] = task_result["confidence"]
+                frame_analysis.metadata["task_unknown"] = task_result["unknown_flag"]
+                frame_analysis.metadata["task_reason"] = task_result["reason"]
+                wearer_status, scene_activity_status = self._derive_statuses(
+                    frame_analysis=frame_analysis,
+                    motion_type=motion_result.motion_type.value,
+                    task_result=task_result,
+                )
+                frame_analysis.metadata["wearer_productivity_status"] = wearer_status
+                frame_analysis.metadata["scene_activity_status"] = scene_activity_status
+
                 # Store results
                 frame_analyses.append(frame_analysis)
                 motion_results.append(motion_result)
@@ -202,16 +268,6 @@ class SiteIQPipeline:
                 # Annotate frame if saving video
                 if video_writer:
                     annotated = self.hoi_detector.draw_analysis(frame, frame_analysis)
-                    # Add motion info
-                    cv2.putText(
-                        annotated,
-                        f"Motion: {motion_result.motion_type.value}",
-                        (10, height - 20),
-                        cv2.FONT_HERSHEY_SIMPLEX,
-                        0.6,
-                        (255, 255, 255),
-                        2,
-                    )
                     video_writer.write(annotated)
 
                 processed_count += 1
@@ -246,6 +302,22 @@ class SiteIQPipeline:
             print("Generating session report...")
 
         report = self.session_aggregator.aggregate(segments)
+        report.metadata = self._build_scene_summary(frame_analyses)
+        report.metadata.update(self._build_task_summary(frame_analyses))
+        report.metadata.update(self._build_status_summary(frame_analyses))
+        activity_insights = self._build_activity_insights(report)
+        report.metadata["activity_insights"] = activity_insights
+        for insight in activity_insights:
+            if insight not in report.insights:
+                report.insights.append(insight)
+
+        scene_summary = report.metadata.get("scene_summary", {})
+        dominant_scene = scene_summary.get("dominant_scene")
+        if dominant_scene and dominant_scene != "unknown":
+            report.insights.append(
+                f"Dominant scene context detected: {dominant_scene} "
+                f"({scene_summary.get('dominant_scene_percentage', 0.0):.1f}% of analyzed frames)"
+            )
 
         if self.verbose:
             print("✓ Analysis complete!\n")
@@ -322,6 +394,7 @@ class SiteIQPipeline:
             },
             "insights": report.insights,
             "recommendations": report.recommendations,
+            "metadata": report.metadata,
         }
 
         with open(output_path, 'w') as f:
@@ -329,6 +402,195 @@ class SiteIQPipeline:
 
         if self.verbose:
             print(f"✓ Report saved to: {output_path}")
+
+    def _build_scene_summary(self, frame_analyses: List) -> Dict[str, object]:
+        """Build per-session scene classification summary from frame metadata."""
+        scenes = [
+            fa.metadata.get("scene", "unknown")
+            for fa in frame_analyses
+        ]
+        if not scenes:
+            return {
+                "scene_summary": {
+                    "dominant_scene": "unknown",
+                    "dominant_scene_percentage": 0.0,
+                    "scene_distribution": {},
+                }
+            }
+
+        counts = Counter(scenes)
+        total = len(scenes)
+        dominant_scene, dominant_count = counts.most_common(1)[0]
+        scene_distribution = {
+            scene: {
+                "frames": count,
+                "percentage": (count / total) * 100.0,
+            }
+            for scene, count in counts.items()
+        }
+
+        return {
+            "scene_summary": {
+                "dominant_scene": dominant_scene,
+                "dominant_scene_percentage": (dominant_count / total) * 100.0,
+                "scene_distribution": scene_distribution,
+            }
+        }
+
+    def _build_task_summary(self, frame_analyses: List) -> Dict[str, object]:
+        """Build per-session task classification summary from frame metadata."""
+        task_names = [fa.metadata.get("task_name", "unknown_task") for fa in frame_analyses]
+        families = [fa.metadata.get("task_family", "unknown") for fa in frame_analyses]
+        trades = [fa.metadata.get("task_trade", "unknown") for fa in frame_analyses]
+
+        if not task_names:
+            return {
+                "task_summary": {
+                    "dominant_task": "unknown_task",
+                    "task_distribution": {},
+                    "family_distribution": {},
+                    "trade_distribution": {},
+                }
+            }
+
+        def dist(values: List[str]) -> Dict[str, Dict[str, float]]:
+            counts = Counter(values)
+            total = len(values)
+            return {
+                k: {"frames": v, "percentage": (v / total) * 100.0}
+                for k, v in counts.items()
+            }
+
+        task_counts = Counter(task_names)
+        dominant_task, dominant_task_count = task_counts.most_common(1)[0]
+        total_tasks = len(task_names)
+
+        return {
+            "task_summary": {
+                "dominant_task": dominant_task,
+                "dominant_task_percentage": (dominant_task_count / total_tasks) * 100.0,
+                "task_distribution": dist(task_names),
+                "family_distribution": dist(families),
+                "trade_distribution": dist(trades),
+            }
+        }
+
+    def _derive_statuses(
+        self,
+        frame_analysis,
+        motion_type: str,
+        task_result: Dict[str, object],
+    ) -> Tuple[str, str]:
+        """
+        Build two status metrics:
+        - wearer_productivity_status: POV-centric
+        - scene_activity_status: any visible activity in frame context
+        """
+        has_hands = len(frame_analysis.hands) > 0
+        has_active_hoi = frame_analysis.has_active_interaction()
+        has_tools = len(frame_analysis.tools) > 0
+
+        task_family = str(task_result.get("task_family", "unknown"))
+        task_conf = float(task_result.get("confidence", 0.0))
+        strong_task = task_family not in {"unknown", "idle"} and task_conf >= 0.65
+
+        # Wearer-centric status
+        if has_active_hoi:
+            wearer = "ACTIVE"
+        elif not has_hands and not has_tools and motion_type in {"stable", "unknown"}:
+            wearer = "UNOBSERVABLE"
+        elif motion_type == "walking":
+            wearer = "ACTIVE_TRAVEL"
+        elif strong_task:
+            wearer = "ACTIVE_CONTEXTUAL"
+        elif has_hands:
+            wearer = "IDLE"
+        else:
+            wearer = "UNOBSERVABLE"
+
+        # Scene-level activity status (includes visible non-POV activity cues)
+        scene = str(frame_analysis.metadata.get("scene", "unknown"))
+        scene_conf = float(frame_analysis.metadata.get("scene_confidence", 0.0))
+        if strong_task:
+            scene_activity = "SCENE_ACTIVE"
+        elif scene != "unknown" and scene_conf >= 0.35:
+            scene_activity = "SCENE_ACTIVE"
+        else:
+            scene_activity = "SCENE_UNCLEAR"
+
+        return wearer, scene_activity
+
+    def _build_status_summary(self, frame_analyses: List) -> Dict[str, object]:
+        """Build distribution summaries for wearer vs scene activity statuses."""
+        wearer_statuses = [fa.metadata.get("wearer_productivity_status", "UNOBSERVABLE") for fa in frame_analyses]
+        scene_statuses = [fa.metadata.get("scene_activity_status", "SCENE_UNCLEAR") for fa in frame_analyses]
+
+        def dist(values: List[str]) -> Dict[str, Dict[str, float]]:
+            counts = Counter(values)
+            total = max(len(values), 1)
+            return {
+                k: {"frames": v, "percentage": (v / total) * 100.0}
+                for k, v in counts.items()
+            }
+
+        return {
+            "status_summary": {
+                "wearer_productivity_status": dist(wearer_statuses),
+                "scene_activity_status": dist(scene_statuses),
+            }
+        }
+
+    def _build_activity_insights(self, report: SessionReport) -> List[str]:
+        """Generate additional activity-focused insights for report.json."""
+        insights: List[str] = []
+
+        # Dominant activity from activity breakdown
+        if report.activity_breakdown:
+            dominant = max(
+                report.activity_breakdown.values(),
+                key=lambda b: b.percentage,
+            )
+            insights.append(
+                f"Dominant activity: {dominant.activity.value} "
+                f"({dominant.percentage:.1f}% of analyzed activity time)"
+            )
+
+        status_summary = report.metadata.get("status_summary", {})
+        wearer_dist = status_summary.get("wearer_productivity_status", {})
+        scene_dist = status_summary.get("scene_activity_status", {})
+
+        # POV observability insight
+        unobs = wearer_dist.get("UNOBSERVABLE", {}).get("percentage", 0.0)
+        if isinstance(unobs, (int, float)):
+            observable = max(0.0, 100.0 - float(unobs))
+            insights.append(f"POV observability coverage: {observable:.1f}%")
+            if float(unobs) > 40.0:
+                insights.append(
+                    f"High unobservable share ({float(unobs):.1f}%) - "
+                    "wearer productivity confidence may be limited"
+                )
+
+        # Scene-vs-wearer discrepancy insight
+        scene_active = scene_dist.get("SCENE_ACTIVE", {}).get("percentage", 0.0)
+        wearer_idle = wearer_dist.get("IDLE", {}).get("percentage", 0.0)
+        if isinstance(scene_active, (int, float)) and isinstance(wearer_idle, (int, float)):
+            if float(scene_active) > 30.0 and float(wearer_idle) > 40.0:
+                insights.append(
+                    "Scene activity is visible while POV wearer appears mostly idle/unobservable; "
+                    "consider reviewing camera positioning or wearer-centric evidence"
+                )
+
+        # Task distribution insight
+        task_summary = report.metadata.get("task_summary", {})
+        dominant_task = task_summary.get("dominant_task")
+        dominant_task_pct = task_summary.get("dominant_task_percentage", 0.0)
+        if dominant_task:
+            insights.append(
+                f"Dominant inferred task: {dominant_task} "
+                f"({float(dominant_task_pct):.1f}% of frames)"
+            )
+
+        return insights
 
 
 def main():

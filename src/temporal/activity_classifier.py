@@ -29,6 +29,7 @@ class ActivityState(Enum):
     SEARCHING = "SEARCHING"  # Looking for tools/materials
     TRAVELING = "TRAVELING"  # Moving to different location
     IDLE = "IDLE"  # No productive activity
+    UNOBSERVABLE = "UNOBSERVABLE"  # Insufficient POV evidence to classify
 
 
 @dataclass
@@ -68,6 +69,7 @@ class ActivityClassifier:
         "SEARCHING": {"productivity": 0.3, "value": 30},
         "TRAVELING": {"productivity": 0.2, "value": 20},
         "IDLE": {"productivity": 0.0, "value": 0},
+        "UNOBSERVABLE": {"productivity": 0.0, "value": 0},
     }
 
     # Smoothing parameters
@@ -105,6 +107,8 @@ class ActivityClassifier:
         held_tools = analysis.get_held_tools()
         has_tool = len(held_tools) > 0
         primary_tool = analysis.primary_tool
+        task_family = str(analysis.metadata.get("task_family", "unknown"))
+        task_confidence = float(analysis.metadata.get("task_confidence", 0.0))
 
         # Extract motion features
         motion_type = motion_result.motion_type
@@ -118,6 +122,8 @@ class ActivityClassifier:
             motion_type=motion_type,
             motion_magnitude=motion_magnitude,
             primary_tool=primary_tool,
+            task_family=task_family,
+            task_confidence=task_confidence,
         )
 
         # Apply smoothing based on recent history
@@ -141,6 +147,8 @@ class ActivityClassifier:
         motion_type: MotionType,
         motion_magnitude: float,
         primary_tool: Optional[str],
+        task_family: str,
+        task_confidence: float,
     ) -> tuple[ActivityState, float]:
         """
         Core decision logic for activity classification.
@@ -157,6 +165,17 @@ class ActivityClassifier:
         Returns:
             (ActivityState, confidence)
         """
+
+        strong_task_signal = (
+            task_family not in {"unknown", "idle"}
+            and task_confidence >= 0.65
+        )
+
+        # Rule 0: UNOBSERVABLE
+        # If POV evidence is very weak and task signal is not strong, avoid forcing IDLE.
+        if not has_hands and not has_tool and not has_active_interaction:
+            if motion_type in {MotionType.UNKNOWN, MotionType.STABLE} and not strong_task_signal:
+                return ActivityState.UNOBSERVABLE, 0.8
 
         # Rule 1: ACTIVE_TOOL_USE
         # Tool in hand + stable or rhythmic motion
@@ -210,13 +229,25 @@ class ActivityClassifier:
         if has_hands and motion_type == MotionType.STABLE:
             return ActivityState.SETUP_CLEANUP, 0.5
 
+        # Task-fusion guardrail:
+        # If task classifier has strong non-idle evidence, block hard-IDLE unless motion strongly contradicts.
+        if strong_task_signal and motion_type != MotionType.WALKING:
+            if task_family in {"tool_operation", "positioning_alignment"}:
+                return ActivityState.ACTIVE_TOOL_USE if has_tool else ActivityState.PRECISION_WORK, 0.7
+            if task_family in {"material_handling", "transport"}:
+                return ActivityState.MATERIAL_HANDLING, 0.7
+            if task_family == "inspection_verification":
+                return ActivityState.PRECISION_WORK, 0.65
+            if task_family == "setup_cleanup":
+                return ActivityState.SETUP_CLEANUP, 0.65
+
         # Rule 7: IDLE
         # No hands visible or no motion
-        if not has_hands or motion_type == MotionType.STABLE:
+        if has_hands and motion_type == MotionType.STABLE:
             return ActivityState.IDLE, 0.7
 
-        # Default: Unknown activity - classify as SETUP_CLEANUP
-        return ActivityState.SETUP_CLEANUP, 0.4
+        # Default: if no clear evidence, prefer UNOBSERVABLE to reduce false IDLE.
+        return ActivityState.UNOBSERVABLE, 0.5
 
     def _smooth_classification(
         self,
