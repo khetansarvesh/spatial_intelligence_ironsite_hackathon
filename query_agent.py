@@ -61,6 +61,7 @@ def load_report_from_json(json_path: str) -> SessionReport:
         segments=[],  # Not stored in JSON
         insights=data.get("insights", []),
         recommendations=data.get("recommendations", []),
+        metadata=data.get("metadata", {}),
     )
 
     return report

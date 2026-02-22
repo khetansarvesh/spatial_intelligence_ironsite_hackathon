@@ -76,6 +76,8 @@ class HOIDetector:
         hand_confidence: float = 0.25,
         tool_confidence: float = 0.25,
         working_distance: float = None,
+        hand_detector: Optional[HandDetector] = None,
+        tool_detector: Optional[ToolDetector] = None,
     ):
         """
         Initialize HOI detector.
@@ -84,9 +86,20 @@ class HOIDetector:
             hand_confidence: Confidence threshold for hand detection
             tool_confidence: Confidence threshold for tool detection
             working_distance: Distance threshold for WORKING status when IOU=0
+            hand_detector: Optional pre-initialized HandDetector
+            tool_detector: Optional pre-initialized ToolDetector
         """
-        self.hand_detector = HandDetector(confidence_threshold=hand_confidence)
-        self.tool_detector = ToolDetector(
+        # Backward compatibility:
+        # older callers may pass detector objects positionally.
+        if isinstance(hand_confidence, HandDetector):
+            hand_detector = hand_confidence
+            hand_confidence = 0.25
+        if isinstance(tool_confidence, ToolDetector):
+            tool_detector = tool_confidence
+            tool_confidence = 0.25
+
+        self.hand_detector = hand_detector or HandDetector(confidence_threshold=hand_confidence)
+        self.tool_detector = tool_detector or ToolDetector(
             backend=DetectorBackend.GROUNDING_DINO,
             confidence_threshold=tool_confidence,
         )
@@ -263,18 +276,38 @@ class HOIDetector:
                     )
                     cv2.line(annotated, hand.center, obj_center, WORKING_COLOR, 2)
 
-        # Draw status overlay
-        status_lines = []
-        if analysis.is_working():
-            active_tools = analysis.get_active_tools()
-            status_lines.append(f"WORKING: {', '.join(active_tools)}")
+        # Draw exactly these four overlay fields:
+        # Status, Task, Scene (confidence), Motion.
+        wearer_status = analysis.metadata.get("wearer_productivity_status")
+        if wearer_status:
+            status_value = wearer_status
         else:
-            status_lines.append("IDLE")
+            if hasattr(analysis, "has_active_interaction"):
+                is_active = bool(analysis.has_active_interaction())
+            elif hasattr(analysis, "is_working"):
+                is_active = bool(analysis.is_working())
+            else:
+                is_active = False
+            status_value = "ACTIVE" if is_active else "IDLE"
 
-        status_lines.append(f"Hands: {len(analysis.hands)} | Tools: {len(analysis.tools)}")
+        task_name = analysis.metadata.get("task_name", "unknown")
+        scene = analysis.metadata.get("scene", "unknown")
+        scene_conf = analysis.metadata.get("scene_confidence", 0.0)
+        if not isinstance(scene_conf, (int, float)):
+            scene_conf = 0.0
+        camera_motion = analysis.metadata.get("camera_motion")
+        if not camera_motion:
+            camera_motion = getattr(analysis, "camera_motion", None) or "unknown"
+
+        status_text = [
+            f"Status: {status_value}",
+            f"Task: {task_name}",
+            f"Scene: {scene} ({scene_conf:.2f})",
+            f"Motion: {camera_motion}",
+        ]
 
         y_offset = 30
-        for text in status_lines:
+        for text in status_text:
             cv2.putText(
                 annotated,
                 text,

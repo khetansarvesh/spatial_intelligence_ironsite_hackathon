@@ -10,6 +10,7 @@ env/
 venv/
 ENV/
 .venv/
+.venv*/
 *.egg-info/
 dist/
 build/
@@ -30,6 +31,9 @@ uploads/
 *.mp4
 *.avi
 *.mov
+*.pt
+report.json
+*_report.json
 
 # IDE
 .vscode/
