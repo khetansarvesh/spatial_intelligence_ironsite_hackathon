@@ -3,14 +3,17 @@
 [![Python](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
 [![Node.js](https://img.shields.io/badge/node.js-16+-green.svg)](https://nodejs.org/)
 [![Hackathon](https://img.shields.io/badge/UMD%20x%20Ironsite-Hackathon%202025-orange.svg)](https://github.com/khetansarvesh)
+[![Demo Video](https://img.shields.io/badge/Demo-YouTube-red)](https://www.youtube.com/watch?v=rbVw7vsX6I4&feature=youtu.be)
 
 > **Upload hardhat camera footage → Get productivity insights via chat. That's it.**
 
 Built in 48 hours for **UMD x Ironsite Spatial Intelligence Hackathon** (Feb 20-22, 2025)
 
+**Watch the demo:** [SiteIQ Demo Video](https://www.youtube.com/watch?v=rbVw7vsX6I4&feature=youtu.be)
+
 ---
 
-## 🎯 The Problem
+## The Problem
 
 Construction supervisors watch hours of hardhat footage but can't answer:
 - *"Was the crew productive today?"*
@@ -21,7 +24,7 @@ Current AI (ChatGPT, Claude) can describe what they see but **can't quantify pro
 
 ---
 
-## ✅ Our Solution
+## Our Solution
 
 **SiteIQ** analyzes egocentric construction video and answers those questions in plain English.
 
@@ -42,7 +45,7 @@ cd dashboard && npm install && npm start
 
 ---
 
-## 📊 Real Results (Test Video: 13.3s Masonry Work)
+## Real Results (Test Video: 13.3s Masonry Work)
 
 **Automated Analysis Output:**
 ```
@@ -66,7 +69,60 @@ cd dashboard && npm install && npm start
 
 ---
 
-## 🛠️ How It Works (High Level)
+## System Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│                         SiteIQ Pipeline                              │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  ┌──────────┐    ┌──────────────┐    ┌──────────────┐               │
+│  │  Video   │───▶│  Perception  │───▶│   Temporal   │               │
+│  │  Input   │    │   Pipeline   │    │   Analysis   │               │
+│  └──────────┘    └──────────────┘    └──────────────┘               │
+│                         │                    │                       │
+│                         ▼                    ▼                       │
+│                  ┌─────────────────────────────────┐                │
+│                  │      Frame Information JSON      │                │
+│                  │   (HOI data for each frame)      │                │
+│                  └─────────────────────────────────┘                │
+│                                   │                                  │
+│           ┌───────────────────────┼───────────────────────┐         │
+│           ▼                       ▼                       ▼         │
+│    ┌─────────────┐        ┌─────────────┐        ┌─────────────┐   │
+│    │  Summary    │        │  CodeAct    │        │  Evidence   │   │
+│    │   Agent     │        │   Agent     │        │   Agent     │   │
+│    └─────────────┘        └─────────────┘        └─────────────┘   │
+│           │                       │                       │         │
+│           ▼                       ▼                       ▼         │
+│    ┌─────────────┐        ┌─────────────┐        ┌─────────────┐   │
+│    │  Markdown   │        │   Answer    │        │   Video     │   │
+│    │  Summary    │        │  + Code     │        │   Clips     │   │
+│    └─────────────┘        └─────────────┘        └─────────────┘   │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+                                   │
+                                   ▼
+                    ┌─────────────────────────────┐
+                    │      Web Dashboard          │
+                    │   (Chat Interface + Video)  │
+                    └─────────────────────────────┘
+```
+
+### Components
+
+| Component | Description | Technology |
+|-----------|-------------|------------|
+| **Perception Pipeline** | Hand detection, tool detection, HOI analysis | MediaPipe, GroundingDINO, YOLOv8 |
+| **Temporal Analysis** | Activity classification, productivity scoring | State machine, temporal segmentation |
+| **Summary Agent** | Generates markdown productivity reports | Claude API |
+| **CodeAct Agent** | Answers questions by generating & executing Python code | DSPy, Claude API |
+| **Evidence Agent** | Finds relevant video timestamps, clips evidence | Claude API |
+| **Web Dashboard** | ChatGPT-style chat interface with video playback | Node.js, Express, Vanilla JS |
+
+---
+
+## How It Works (High Level)
 
 ```
 Video (30 FPS)
@@ -87,31 +143,31 @@ Video (30 FPS)
     → Auto-generated insights & recommendations
     ↓
 [4] CONVERSATIONAL INTERFACE - Ask questions
-    → LLM agent (GPT-4o/Claude) with function calling
-    → Grounded in actual data (no hallucination)
+    → CodeAct agent generates Python code to query data
+    → Evidence agent finds video timestamps for proof
     → Natural language: "Was productivity better in morning?"
 ```
 
-**Key Innovation:** We combine **what's visible** (hands, tools) with **how it's moving** (motion patterns) to classify **construction-specific activities** over time.
+**Key Innovation:** We combine **what's visible** (hands, tools) with **how it's moving** (motion patterns) to classify **construction-specific activities** over time. The CodeAct agent writes executable Python code to answer questions, providing transparency and accuracy.
 
 ---
 
-## 🚀 What Makes This Different
+## What Makes This Different
 
 | Feature | SiteIQ | Generic AI (ChatGPT/Claude) | Traditional Time-Motion Study |
 |---------|--------|------------------------------|-------------------------------|
 | **Understands time/productivity** | ✅ Yes | ❌ Frame-level only | ✅ Yes |
 | **Construction-specific** | ✅ 7 activity states | ❌ Generic descriptions | ✅ Manual observation |
 | **No code needed** | ✅ Chat interface | ❌ API/technical | ✅ Pen & paper |
+| **Shows generated code** | ✅ Transparent reasoning | ❌ Black box | ❌ N/A |
+| **Video evidence clips** | ✅ Auto-clips proof | ❌ No | ❌ Manual |
 | **Automated** | ✅ Fully | ⚠️ Partial | ❌ Manual labor |
-| **Cost** | $ (API usage) | $$$ (API per query) | $$$ (Labor hours) |
-| **Speed** | 10-30 seconds/min of video | Real-time | Hours per session |
 
-**Bottom line:** First system that combines computer vision + temporal analysis + conversational AI specifically for construction productivity.
+**Bottom line:** First system that combines computer vision + temporal analysis + code-generating AI specifically for construction productivity.
 
 ---
 
-## 💡 Novel Contributions (What We Discovered)
+## Novel Contributions
 
 ### 1. Multi-Modal Fusion Beats Single Signals
 - **Hands alone:** 62% activity accuracy
@@ -123,15 +179,15 @@ Video (30 FPS)
 - Correlation coefficient: **r = 0.78** between hand visibility and productive work
 - When hands disappear: Usually searching (panning camera) or idle
 
-### 3. LLM Function Calling > RAG for Structured Data
-- Function calling: **94%** answer accuracy, 1-2s response
-- RAG (embed report): 78% accuracy, 3-5s response
-- Grounded tool responses prevent hallucination
+### 3. CodeAct Agent > Function Calling for Transparency
+- Agent generates Python code, executes it, returns answer
+- User can toggle to see exact code that computed the answer
+- No hallucination - grounded in actual data queries
 
-### 4. Construction-Specific Activity States Matter
-- Generic "working/not working" loses nuance
-- Our 7 states capture construction workflow reality
-- Partial productivity weights (setup = 50%, traveling = 20%) reflect actual value
+### 4. Video Evidence as Proof
+- Evidence agent identifies timestamps supporting each answer
+- Dashboard clips ±1 second around each timestamp
+- Supervisors can verify AI claims with video proof
 
 ### 5. Temporal Smoothing Critical for Realism
 - Raw frame-by-frame: 40 state transitions/minute (noisy)
@@ -139,196 +195,42 @@ Video (30 FPS)
 
 ---
 
-## 🏗️ Technical Approach (Simplified)
+## Project Structure
 
-**Core Pipeline:**
-```python
-# main.py - 300 lines, orchestrates everything
-for frame in video:
-    # PERCEPTION
-    hands = MediaPipe.detect(frame)           # 21 landmarks per hand
-    tools = YOLO.detect(frame)                # 9 tool classes
-    motion = OpticalFlow.analyze(frame)       # stable/rhythmic/panning/walking
-
-    # TEMPORAL
-    activity = ActivityFSM.classify(          # 7-state classifier
-        hands=hands, tools=tools, motion=motion
-    )
-
-    # AGGREGATION (after all frames)
-    report = SessionAggregator.generate(
-        activities=all_activities,
-        productivity_score=weighted_average(),
-        insights=detect_patterns(),
-        recommendations=suggest_improvements()
-    )
-
-    # AGENT (interactive)
-    answer = LLMAgent.query(
-        question="What was productivity?",
-        tools=[get_productivity_score, find_idle_periods, ...]
-    )
 ```
-
-**Tech Stack:**
-- **Perception:** MediaPipe (hands), YOLO/Grounding DINO (tools), OpenCV (motion)
-- **Intelligence:** Custom FSM, weighted scoring, pattern detection
-- **Agent:** OpenAI GPT-4o or Anthropic Claude with function calling
-- **Interface:** Express.js backend, vanilla JS frontend, dark-themed chat UI
-
-**Code Stats:** 7,400 LOC Python + 1,200 LOC JavaScript = **8,600 total lines in 48 hours**
-
----
-
-## 🎬 Live Demo
-
-### Dashboard Interface
-```
-┌─────────────────────────────────────┐
-│  SiteIQ                             │
-├─────────────────────────────────────┤
-│                                     │
-│  Welcome! Upload a construction     │
-│  video to get productivity insights │
-│                                     │
-│  [Drop video or click to browse]   │
-│                                     │
-├─────────────────────────────────────┤
-│  📎  Ask a question...          ➤   │
-└─────────────────────────────────────┘
-
-After upload:
-┌─────────────────────────────────────┐
-│  SiteIQ                             │
-├─────────────────────────────────────┤
-│  You: [video thumbnail]             │
-│       Analyze this video            │
-│                                     │
-│  Agent: ✓ Analysis complete         │
-│  [Annotated video player]           │
-│                                     │
-│  Session: 13.3s masonry work        │
-│  Productivity: 95.6% (Exceptional)  │
-│  Active: 12.7s | Idle: 0.0s         │
-│  Main Activity: Precision work      │
-│                                     │
-│  You: What tools were used?         │
-│                                     │
-│  Agent: No tools detected in this   │
-│  session. The worker focused on     │
-│  precision hand work for block      │
-│  alignment and placement.           │
-│                                     │
-├─────────────────────────────────────┤
-│  📎  Ask follow-up...           ➤   │
-└─────────────────────────────────────┘
-```
-
-### CLI Usage
-```bash
-# Quick test (first 10 seconds)
-python main.py --video site_footage.mp4 --max-frames 300
-
-# Full analysis
-python main.py --video site_footage.mp4 --output report.json
-
-# Interactive Q&A
-python query_agent.py --report report.json --interactive
-
-You: What was the overall productivity score?
-SiteIQ: 95.6% (Exceptional). The worker spent 95.5% of time in productive
-        precision work with minimal idle time.
-
-You: What happened from 5 to 10 seconds?
-SiteIQ: During 5-10s: 100% precision work (block alignment). No interruptions.
-
-You: How can we improve?
-SiteIQ: Reduce interruptions - 17 short segments detected suggests task
-        switching. Consider workflow optimization.
+spatial_intelligence_ironsite_hackathon/
+├── src/
+│   ├── perception/          # Computer vision components
+│   │   ├── hand_detector.py    # MediaPipe hand tracking
+│   │   ├── tool_detector.py    # GroundingDINO/YOLO tool detection
+│   │   └── hoi_detector.py     # Hand-object interaction logic
+│   ├── temporal/            # Time-series analysis
+│   │   ├── activity_classifier.py
+│   │   └── session_aggregator.py
+│   └── agent/               # LLM agents
+│       ├── agent.py            # CodeAct agent (generates Python)
+│       ├── evidence.py         # Evidence extraction
+│       ├── summary.py          # Report summarization
+│       ├── tools.py            # Agent tool functions
+│       └── prompts.py          # System prompts
+├── dashboard/               # Web interface
+│   ├── server.js               # Express backend
+│   └── public/
+│       ├── index.html
+│       ├── style.css
+│       └── script.js
+├── outputs/                 # Generated files
+│   ├── frames_information.json
+│   ├── final_report.json
+│   ├── productivity_summary.md
+│   └── annotated_video.mp4
+├── main.py                  # Video processing pipeline
+└── requirements.txt
 ```
 
 ---
 
-## 📈 Validation & Performance
-
-**Detection Accuracy (validated on 100 frames):**
-- Hand Detection: 94% precision, 89% recall
-- Tool Detection (YOLO): 78% precision, 72% recall
-- Activity Classification: **83% agreement** with human labelers
-
-**Processing Speed (MacBook Pro M1):**
-- YOLO + GPU: 8-10 FPS (real-time factor: 0.3x)
-- YOLO + CPU: 3-5 FPS (real-time factor: 0.15x)
-
-**Practical:** 1 minute of video → 10-30 seconds processing time
-
----
-
-## 🚧 Challenges Solved
-
-### 1. Construction Gloves Block Hand Detection
-**Problem:** MediaPipe trained on bare hands
-**Solution:** Lower confidence threshold + temporal tracking + graceful degradation to motion-only analysis
-
-### 2. Tools in Cluttered Job Sites (False Positives)
-**Problem:** Too many objects trigger detections
-**Solution:** Hand-proximity filtering (only tools near hands count) + activity context validation
-
-### 3. Defining "Productivity" is Subjective
-**Problem:** What counts as productive varies by trade
-**Solution:** 7-state taxonomy with weighted scores (0-100%) allows nuanced interpretation
-
-### 4. LLM Hallucination on Metrics
-**Problem:** GPT would invent numbers
-**Solution:** Function calling with grounded tools (94% accuracy vs 78% with RAG)
-
-### 5. UI Complexity (Initial 15+ Charts)
-**Problem:** Overwhelming for supervisors
-**Solution:** Chat-first interface - conversation replaces dashboards
-
----
-
-## 🏆 Hackathon Journey (48 Hours)
-
-**Day 1 (Feb 20) - Foundation**
-- Hours 0-4: Team formation, architecture design
-- Hours 4-12: Parallel dev (perception + temporal + backend)
-- Hours 12-16: First end-to-end test (video → JSON report)
-
-**Day 2 (Feb 21) - Intelligence**
-- Hours 16-24: LLM agent with function calling
-- Hours 24-32: Insights engine, recommendations
-- Hours 32-40: Dashboard chat interface
-- Hours 40-44: Testing on real construction footage
-
-**Day 3 (Feb 22) - Polish**
-- Hours 44-48: Bug fixes, docs, deployment
-
-**Iterations:**
-- v1: Hands only (62% accuracy) ❌
-- v2: + Tools (58% accuracy) ❌
-- v3: + Motion (71% accuracy) ⚠️
-- v4: FSM fusion (83% accuracy) ✅
-- v5: + LLM agent ✅
-- Final: Production-ready ✅
-
----
-
-## 👥 Team
-
-**UMD x Ironsite Spatial Intelligence Hackathon** (Feb 20-22, 2025)
-
-| Person | Role | Contribution |
-|--------|------|--------------|
-| **P1** | Perception Lead | Hand detection (MediaPipe), HOI integration |
-| **P2** | Perception | Tool detection (YOLO/DINO), Scene classification |
-| **P3** | Temporal Lead | Motion analysis, Activity FSM, Session aggregator |
-| **P4** | Agent Lead | LLM integration, Function calling, Prompts |
-| **P5** | Integration Lead | Pipeline, Dashboard, Testing, Documentation |
-
----
-
-## 📦 Quick Start (5 Minutes)
+## Quick Start (5 Minutes)
 
 ### Option 1: Dashboard (Recommended)
 ```bash
@@ -339,8 +241,8 @@ cd spatial_intelligence_ironsite_hackathon
 pip install -r requirements.txt
 cd dashboard && npm install
 
-# Set API key (optional, for chat features)
-export OPENAI_API_KEY=sk-...
+# Set API key
+export ANTHROPIC_API_KEY=your-key-here
 
 # Start dashboard
 npm start
@@ -359,46 +261,114 @@ python query_agent.py --report your_video_report.json --summary
 
 ---
 
-## 📚 Documentation
+## API Endpoints
 
-**Main Files:**
-- `README.md` (this file) - Overview & quick start
-- `COMPLETE_SYSTEM_GUIDE.md` - Full technical documentation
-- `AGENT_GUIDE.md` - LLM agent usage
-- `README_USAGE.md` - Python API reference
-
-**Key Modules:**
-- `src/perception/` - Hand, tool, HOI detection
-- `src/temporal/` - Motion, activity, session analysis
-- `src/agent/` - LLM integration, query tools
-- `dashboard/` - Web interface (Express + vanilla JS)
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/summary` | GET | Get markdown productivity summary |
+| `/api/video/annotated` | GET | Serve annotated video |
+| `/api/ask` | POST | Ask a question (returns answer + generated code) |
+| `/api/evidence` | POST | Get video timestamps for evidence |
+| `/api/video/clip` | GET | Get clipped video segment (±1 sec) |
+| `/api/health` | GET | Health check |
 
 ---
 
-## 🎯 Impact Statement
+## Dashboard Interface
+
+```
+┌─────────────────────────────────────┐
+│  SiteIQ                             │
+├─────────────────────────────────────┤
+│                                     │
+│  You: [video thumbnail]             │
+│       Analyze this video            │
+│                                     │
+│  Agent: ✓ Analysis complete         │
+│  [Annotated video player]           │
+│                                     │
+│  Session: 13.3s masonry work        │
+│  Productivity: 95.6% (Exceptional)  │
+│                                     │
+│  You: What was productivity 5-10s?  │
+│                                     │
+│  Agent: [Video clip evidence]       │
+│  Productivity was 100% between      │
+│  5-10 seconds.        [Code toggle] │
+│                                     │
+├─────────────────────────────────────┤
+│  📎  Ask follow-up...           ➤   │
+└─────────────────────────────────────┘
+```
+
+---
+
+## Example Questions
+
+Try asking the dashboard:
+
+- "What was the overall productivity score?"
+- "How much idle time was there?"
+- "What tools were used?"
+- "When was peak productivity?"
+- "What activity took the most time?"
+- "Show me the productivity between 5s and 10s"
+
+---
+
+## Tech Stack
+
+- **Computer Vision**: MediaPipe, GroundingDINO, YOLOv8, OpenCV
+- **LLM Framework**: DSPy, Anthropic Claude
+- **Backend**: Node.js, Express
+- **Frontend**: Vanilla JavaScript, highlight.js (syntax highlighting)
+- **Video Processing**: OpenCV, FFmpeg
+
+---
+
+## Validation & Performance
+
+**Detection Accuracy (validated on 100 frames):**
+- Hand Detection: 94% precision, 89% recall
+- Tool Detection (YOLO): 78% precision, 72% recall
+- Activity Classification: **83% agreement** with human labelers
+
+**Processing Speed (MacBook Pro M1):**
+- YOLO + GPU: 8-10 FPS (real-time factor: 0.3x)
+- YOLO + CPU: 3-5 FPS (real-time factor: 0.15x)
+
+**Practical:** 1 minute of video → 10-30 seconds processing time
+
+---
+
+## Team
+
+**UMD x Ironsite Spatial Intelligence Hackathon** (Feb 20-22, 2025)
+
+| Person | Role | Contribution |
+|--------|------|--------------|
+| **P1** | Perception Lead | Hand detection (MediaPipe), HOI integration |
+| **P2** | Perception | Tool detection (YOLO/DINO), Scene classification |
+| **P3** | Temporal Lead | Motion analysis, Activity FSM, Session aggregator |
+| **P4** | Agent Lead | LLM integration, CodeAct agent, Evidence agent |
+| **P5** | Integration Lead | Pipeline, Dashboard, Testing, Documentation |
+
+---
+
+## Impact Statement
 
 **Construction productivity hasn't improved in 40 years** while other industries transformed with AI.
 
 **The problem:** Existing AI can *describe* but not *quantify*. Construction supervisors need numbers, not narratives.
 
-**Our solution:** First end-to-end system that converts egocentric video → productivity metrics → natural language insights.
-
-**Real-world application:**
-- Daily crew performance tracking
-- Training feedback (show workers their idle time)
-- Workflow optimization (identify bottlenecks)
-- Safety compliance (detect PPE usage patterns)
+**Our solution:** First end-to-end system that converts egocentric video → productivity metrics → natural language insights with video evidence.
 
 **This isn't just a hackathon project. This is the foundation for AI-powered workforce analytics in construction.**
 
 ---
 
-## 📝 License & Repository
+## License
 
-- **License:** MIT
-- **Repository:** [github.com/khetansarvesh/spatial_intelligence_ironsite_hackathon](https://github.com/khetansarvesh/spatial_intelligence_ironsite_hackathon)
-- **Contact:** Open GitHub issues for questions
+MIT License
 
-Built with passion in 48 hours. Ready for production.
-
-**🏗️ Transforming construction productivity, one video at a time.**
+**Built with passion in 48 hours. Ready for production.**
