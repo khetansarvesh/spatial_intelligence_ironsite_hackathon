@@ -1,0 +1,128 @@
+{
+  "session_duration": 13.292125518058024,
+  "start_time": 0.0333135977896191,
+  "end_time": 13.325439115847642,
+  "total_frames": 400,
+  "productivity_score": 0.9563909774436091,
+  "productive_time": 12.69248075784488,
+  "idle_time": 0.0,
+  "idle_percentage": 0.0,
+  "most_used_tool": null,
+  "tool_switches": 0,
+  "activity_breakdown": {
+    "PRECISION_WORK": {
+      "activity": "PRECISION_WORK",
+      "total_time": 12.69248075784488,
+      "percentage": 95.48872180451127,
+      "segment_count": 9,
+      "average_duration": 1.4102756397605423,
+      "productivity_score": 1.0
+    },
+    "SEARCHING": {
+      "activity": "SEARCHING",
+      "total_time": 0.06662719557923857,
+      "percentage": 0.501253132832083,
+      "segment_count": 7,
+      "average_duration": 0.009518170797034082,
+      "productivity_score": 0.3
+    },
+    "UNOBSERVABLE": {
+      "activity": "UNOBSERVABLE",
+      "total_time": 0.0,
+      "percentage": 0.0,
+      "segment_count": 1,
+      "average_duration": 0.0,
+      "productivity_score": 0.0
+    }
+  },
+  "tool_usage": {},
+  "insights": [
+    "High productivity session (95.6%)",
+    "Many short activity segments (17) - possible interruptions",
+    "Peak productivity: 0.0s - 1.8s (score: 100.0%)",
+    "Dominant activity: PRECISION_WORK (95.5% of analyzed activity time)",
+    "POV observability coverage: 99.0%",
+    "Dominant inferred task: align_or_place_block (99.5% of frames)",
+    "Dominant scene context detected: masonry (99.2% of analyzed frames)"
+  ],
+  "recommendations": [
+    "Identify and eliminate sources of interruption"
+  ],
+  "metadata": {
+    "scene_summary": {
+      "dominant_scene": "masonry",
+      "dominant_scene_percentage": 99.25,
+      "scene_distribution": {
+        "masonry": {
+          "frames": 397,
+          "percentage": 99.25
+        },
+        "electrical": {
+          "frames": 3,
+          "percentage": 0.75
+        }
+      }
+    },
+    "task_summary": {
+      "dominant_task": "align_or_place_block",
+      "dominant_task_percentage": 99.5,
+      "task_distribution": {
+        "align_or_place_block": {
+          "frames": 398,
+          "percentage": 99.5
+        },
+        "wire_or_panel_work": {
+          "frames": 2,
+          "percentage": 0.5
+        }
+      },
+      "family_distribution": {
+        "positioning_alignment": {
+          "frames": 398,
+          "percentage": 99.5
+        },
+        "tool_operation": {
+          "frames": 2,
+          "percentage": 0.5
+        }
+      },
+      "trade_distribution": {
+        "masonry": {
+          "frames": 398,
+          "percentage": 99.5
+        },
+        "electrical": {
+          "frames": 2,
+          "percentage": 0.5
+        }
+      }
+    },
+    "status_summary": {
+      "wearer_productivity_status": {
+        "ACTIVE_CONTEXTUAL": {
+          "frames": 396,
+          "percentage": 99.0
+        },
+        "UNOBSERVABLE": {
+          "frames": 4,
+          "percentage": 1.0
+        }
+      },
+      "scene_activity_status": {
+        "SCENE_ACTIVE": {
+          "frames": 398,
+          "percentage": 99.5
+        },
+        "SCENE_UNCLEAR": {
+          "frames": 2,
+          "percentage": 0.5
+        }
+      }
+    },
+    "activity_insights": [
+      "Dominant activity: PRECISION_WORK (95.5% of analyzed activity time)",
+      "POV observability coverage: 99.0%",
+      "Dominant inferred task: align_or_place_block (99.5% of frames)"
+    ]
+  }
+}
