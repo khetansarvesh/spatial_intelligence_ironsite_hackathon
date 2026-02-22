@@ -362,3 +362,39 @@ def ask(query: str) -> str:
         _agent = CodeActAgent(data, verbose=False)
 
     return _agent.query(query)
+
+
+def ask_with_code(query: str) -> dict:
+    """
+    Ask a question and get both answer and the generated code.
+
+    Args:
+        query: Natural language question
+
+    Returns:
+        Dictionary with 'answer' and 'code' keys
+    """
+    global _agent
+
+    # Auto-load data on first call
+    if _agent is None:
+        with open(DATA_PATH, 'r') as f:
+            data = json.load(f)
+        _agent = CodeActAgent(data, verbose=False)
+
+    result = _agent.query_raw(query)
+
+    # Format the answer
+    if result['success']:
+        formatted = _agent.result_formatter(
+            query=query,
+            result=str(result.get('result')),
+        )
+        answer = formatted.response
+    else:
+        answer = f"I couldn't compute the answer: {result.get('error', 'Unknown error')}"
+
+    return {
+        'answer': answer,
+        'code': result.get('code', ''),
+    }

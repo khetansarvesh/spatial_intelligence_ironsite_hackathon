@@ -205,6 +205,166 @@ app.post('/api/process-video', upload.single('video'), async (req, res) => {
 });
 
 /**
+ * GET /api/summary
+ * Get markdown summary from the pre-generated file
+ */
+app.get('/api/summary', async (req, res) => {
+  try {
+    const summaryPath = path.join(PROJECT_ROOT, 'outputs', 'productivity_summary.md');
+    const markdown = await fs.readFile(summaryPath, 'utf-8');
+    res.json({ markdown });
+  } catch (error) {
+    console.error('Summary error:', error);
+    res.status(500).json({ error: 'Summary file not found' });
+  }
+});
+
+/**
+ * GET /api/video/annotated
+ * Serve the annotated video file
+ */
+app.get('/api/video/annotated', async (req, res) => {
+  const videoPath = path.join(PROJECT_ROOT, 'outputs', 'annotated_video.mp4');
+
+  try {
+    await fs.access(videoPath);
+    res.sendFile(videoPath);
+  } catch {
+    res.status(404).json({ error: 'Annotated video not found' });
+  }
+});
+
+/**
+ * POST /api/ask
+ * Ask a question using the CodeAct agent
+ */
+app.post('/api/ask', async (req, res) => {
+  const { question } = req.body;
+
+  if (!question) {
+    return res.status(400).json({ error: 'Missing question' });
+  }
+
+  try {
+    // Escape single quotes in question
+    const escapedQuestion = question.replace(/'/g, "\\'").replace(/"/g, '\\"');
+
+    const pythonCode = `
+import sys
+import json
+sys.path.insert(0, '.')
+from src.agent.agent import ask_with_code
+result = ask_with_code('${escapedQuestion}')
+print(json.dumps(result))
+`;
+    const output = await executePython('-c', [pythonCode]);
+    const result = JSON.parse(output.trim());
+    res.json({ answer: result.answer, code: result.code });
+  } catch (error) {
+    console.error('Ask error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/evidence
+ * Get evidence timestamps for a question/answer pair
+ */
+app.post('/api/evidence', async (req, res) => {
+  const { question, answer } = req.body;
+
+  if (!question || !answer) {
+    return res.status(400).json({ error: 'Missing question or answer' });
+  }
+
+  try {
+    // Escape quotes
+    const escapedQuestion = question.replace(/'/g, "\\'").replace(/"/g, '\\"');
+    const escapedAnswer = answer.replace(/'/g, "\\'").replace(/"/g, '\\"');
+
+    const pythonCode = `
+import sys
+import json
+sys.path.insert(0, '.')
+from src.agent.evidence import get_evidence
+evidence = get_evidence('''${escapedQuestion}''', '''${escapedAnswer}''')
+print(json.dumps(evidence))
+`;
+    const output = await executePython('-c', [pythonCode]);
+    const evidence = JSON.parse(output.trim());
+    res.json({ evidence });
+  } catch (error) {
+    console.error('Evidence error:', error);
+    res.status(500).json({ error: error.message, evidence: [] });
+  }
+});
+
+/**
+ * GET /api/video/clip
+ * Get a clipped portion of the annotated video
+ * Query params: start (seconds), duration (seconds, default 2)
+ */
+app.get('/api/video/clip', async (req, res) => {
+  const start = parseFloat(req.query.start) || 0;
+  const duration = parseFloat(req.query.duration) || 2;
+
+  const inputPath = path.join(PROJECT_ROOT, 'outputs', 'annotated_video.mp4');
+  const outputPath = path.join(PROJECT_ROOT, 'outputs', `clip_${start}_${duration}.mp4`);
+
+  try {
+    // Use Python/OpenCV to clip the video
+    const clipStart = Math.max(0, start - 1); // 1 sec before
+    const clipDuration = duration + 2; // Add buffer
+
+    const pythonCode = `
+import cv2
+import sys
+
+input_path = '${inputPath}'
+output_path = '${outputPath}'
+start_time = ${clipStart}
+duration = ${clipDuration}
+
+cap = cv2.VideoCapture(input_path)
+fps = cap.get(cv2.CAP_PROP_FPS)
+total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+
+start_frame = int(start_time * fps)
+end_frame = min(int((start_time + duration) * fps), total_frames)
+
+cap.set(cv2.CAP_PROP_POS_FRAMES, start_frame)
+
+fourcc = cv2.VideoWriter_fourcc(*'avc1')
+out = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
+
+for i in range(end_frame - start_frame):
+    ret, frame = cap.read()
+    if not ret:
+        break
+    out.write(frame)
+
+cap.release()
+out.release()
+print('OK')
+`;
+
+    await executePython('-c', [pythonCode]);
+
+    // Send the clipped video
+    res.sendFile(outputPath, (err) => {
+      // Clean up clip file after sending
+      fs.unlink(outputPath).catch(() => {});
+    });
+
+  } catch (error) {
+    console.error('Clip error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
  * GET /api/health
  * Health check
  */
@@ -232,7 +392,10 @@ app.listen(PORT, () => {
   console.log('  Available routes:');
   console.log('    GET  /api/reports              - List all reports');
   console.log('    GET  /api/report/:filename     - Get report data');
-  console.log('    POST /api/query                - Query LLM agent');
+  console.log('    GET  /api/summary              - Get markdown summary');
+  console.log('    GET  /api/video/annotated      - Serve annotated video');
+  console.log('    POST /api/ask                  - Ask question (CodeAct agent)');
+  console.log('    POST /api/evidence             - Get evidence timestamps');
   console.log('    POST /api/process-video        - Process new video');
   console.log('    GET  /api/health               - Health check');
   console.log('');

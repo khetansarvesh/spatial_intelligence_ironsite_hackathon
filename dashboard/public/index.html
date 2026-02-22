@@ -3,296 +3,57 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SiteIQ — Productivity Intelligence</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Manrope:wght@400;500;600;700&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="styles.css">
+    <title>SiteIQ</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <link rel="stylesheet" href="style.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
 </head>
 <body>
-    <!-- Blueprint Grid Background -->
-    <div class="blueprint-grid"></div>
+    <header id="topHeader" class="hidden">
+        <h1>SiteIQ</h1>
+    </header>
 
-    <div class="app-container">
-        <!-- Top Bar -->
-        <header class="top-bar">
-            <div class="brand">
-                <div class="brand-icon">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-                        <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-                        <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-                        <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-                    </svg>
-                </div>
-                <div class="brand-text">
-                    <h1>SiteIQ</h1>
-                    <span class="brand-tagline">Productivity Intelligence</span>
-                </div>
-            </div>
-
-            <div class="top-actions">
-                <select id="reportSelect" class="report-selector">
-                    <option value="">Select Analysis Session...</option>
-                </select>
-
-                <!-- Notifications Bell -->
-                <div class="notification-container">
-                    <button id="notificationBtn" class="btn-notification">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                            <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 0 1-3.46 0" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                        </svg>
-                        <span class="notification-badge" id="notificationBadge" style="display: none;">0</span>
-                    </button>
-                    <div class="notification-dropdown" id="notificationDropdown">
-                        <div class="notification-header">
-                            <h4>Processing History</h4>
-                            <button id="clearNotifications" class="btn-clear">Clear All</button>
-                        </div>
-                        <div class="notification-list" id="notificationList">
-                            <div class="notification-empty">No notifications yet</div>
-                        </div>
-                    </div>
-                </div>
-
-                <button id="newAnalysisBtn" class="btn-primary">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                        <path d="M12 5V19M5 12H19" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                    </svg>
-                    New Analysis
-                </button>
-            </div>
-        </header>
-
-        <!-- Main Content Area -->
-        <main class="main-content">
-            <!-- Upload State -->
-            <div id="uploadState" class="upload-state">
-                <div class="upload-container">
-                    <div class="upload-visual">
-                        <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
-                            <rect x="10" y="20" width="60" height="45" rx="4" stroke="currentColor" stroke-width="2"/>
-                            <circle cx="40" cy="42" r="8" stroke="currentColor" stroke-width="2"/>
-                            <path d="M30 35L25 30M50 35L55 30" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                        </svg>
-                    </div>
-                    <h2>Upload POV Video for Analysis</h2>
-                    <p>Drop your construction site video here to begin productivity analysis</p>
-
-                    <div class="upload-dropzone" id="uploadDropzone">
-                        <div class="dropzone-content">
-                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
-                                <path d="M12 15V3M12 3L8 7M12 3L16 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                <path d="M2 17L2 19C2 20.1046 2.89543 21 4 21L20 21C21.1046 21 22 20.1046 22 19L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                            </svg>
-                            <span>Drop video here or click to browse</span>
-                            <small>Supports MP4, MOV, AVI • Max 500MB</small>
-                        </div>
-                        <input type="file" id="videoInput" accept="video/*">
-                    </div>
-
-                    <div class="upload-options">
-                        <label class="checkbox-label">
-                            <input type="checkbox" id="quickProcessing">
-                            <span>Quick analysis (first 300 frames)</span>
-                        </label>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Processing State -->
-            <div id="processingState" class="processing-state" style="display: none;">
-                <div class="processing-container">
-                    <div class="processing-spinner">
-                        <div class="spinner-ring"></div>
-                        <div class="spinner-ring"></div>
-                        <div class="spinner-ring"></div>
-                    </div>
-                    <h2>Analyzing Video</h2>
-                    <p id="processingStatus">Processing frames and detecting activities...</p>
-                    <div class="progress-bar">
-                        <div class="progress-fill" id="progressFill"></div>
-                    </div>
-                    <span class="progress-text" id="progressText">0%</span>
-                </div>
-            </div>
-
-            <!-- Chat Interface (Main State) -->
-            <div id="chatInterface" class="chat-interface" style="display: none;">
-                <!-- Left: Chat Panel -->
-                <div class="chat-panel">
-                    <div class="chat-header">
-                        <h3>Analysis Conversation</h3>
-                        <span class="session-indicator" id="sessionIndicator">Session Active</span>
-                    </div>
-
-                    <div class="chat-messages" id="chatMessages">
-                        <!-- Messages will be inserted here -->
-                    </div>
-
-                    <div class="chat-input-area">
-                        <div class="suggested-questions" id="suggestedQuestions">
-                            <button class="suggestion-chip" data-question="What was the overall productivity score?">Overall productivity</button>
-                            <button class="suggestion-chip" data-question="Which tools were used most frequently?">Tool usage</button>
-                            <button class="suggestion-chip" data-question="What were the main activities?">Main activities</button>
-                            <button class="suggestion-chip" data-question="How can we improve efficiency?">Improvement tips</button>
-                        </div>
-
-                        <div class="input-container">
-                            <input
-                                type="text"
-                                id="chatInput"
-                                class="chat-input"
-                                placeholder="Ask about productivity, time periods, specific activities..."
-                                disabled
-                            >
-                            <button id="chatSend" class="btn-send" disabled>
-                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                                    <path d="M22 2L11 13M22 2L15 22L11 13M22 2L2 8L11 13" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
-                                </svg>
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Right: Metrics Panel -->
-                <aside class="metrics-panel">
-                    <div class="panel-header">
-                        <h3>Key Metrics</h3>
-                        <button class="panel-toggle" id="panelToggle">
-                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                                <path d="M19 9L12 16L5 9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                            </svg>
-                        </button>
-                    </div>
-
-                    <div class="panel-content" id="panelContent">
-                        <!-- Primary KPIs -->
-                        <div class="kpi-grid">
-                            <div class="kpi-card kpi-primary">
-                                <div class="kpi-label">Productivity Score</div>
-                                <div class="kpi-value" id="productivityScore">--</div>
-                                <div class="kpi-rating" id="productivityRating">Analyzing...</div>
-                            </div>
-
-                            <div class="kpi-card">
-                                <div class="kpi-label">Session Duration</div>
-                                <div class="kpi-value" id="sessionDuration">--</div>
-                            </div>
-
-                            <div class="kpi-card">
-                                <div class="kpi-label">Active Time</div>
-                                <div class="kpi-value" id="activeTime">--</div>
-                                <div class="kpi-sublabel" id="activePercentage">-- of session</div>
-                            </div>
-
-                            <div class="kpi-card">
-                                <div class="kpi-label">Idle Time</div>
-                                <div class="kpi-value" id="idleTime">--</div>
-                                <div class="kpi-sublabel" id="idlePercentage">-- of session</div>
-                            </div>
-                        </div>
-
-                        <!-- Tool Usage -->
-                        <div class="metric-section">
-                            <h4>Tool Usage</h4>
-                            <div class="tool-list" id="toolList">
-                                <div class="loading-placeholder">Loading tool data...</div>
-                            </div>
-                        </div>
-
-                        <!-- Key Highlights -->
-                        <div class="metric-section">
-                            <h4>Highlights</h4>
-                            <div class="highlights-list" id="highlightsList">
-                                <div class="loading-placeholder">Loading insights...</div>
-                            </div>
-                        </div>
-
-                        <!-- Activity Breakdown (Mini) -->
-                        <div class="metric-section">
-                            <h4>Activity Breakdown</h4>
-                            <div class="activity-bars" id="activityBars">
-                                <div class="loading-placeholder">Loading activities...</div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- Scroll Indicator -->
-                    <div class="scroll-indicator" id="scrollIndicator">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                            <path d="M19 9L12 16L5 9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                        </svg>
-                    </div>
-                </aside>
-            </div>
-        </main>
-
-        <!-- Upload Modal -->
-        <div class="upload-modal" id="uploadModal">
-            <div class="upload-modal-content">
-                <div class="upload-modal-header">
-                    <h2>New Analysis</h2>
-                    <button class="modal-close-btn" id="modalCloseBtn">&times;</button>
-                </div>
-                <div class="upload-modal-body">
-                    <div id="modalUploadArea">
-                        <div class="upload-visual">
-                            <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
-                                <rect x="10" y="20" width="60" height="45" rx="4" stroke="currentColor" stroke-width="2"/>
-                                <circle cx="40" cy="42" r="8" stroke="currentColor" stroke-width="2"/>
-                                <path d="M30 35L25 30M50 35L55 30" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                            </svg>
-                        </div>
-                        <h3 style="text-align: center; margin: 1rem 0;">Upload POV Video for Analysis</h3>
-                        <p style="text-align: center; color: var(--gray-600); margin-bottom: 2rem;">Drop your construction site video here to begin productivity analysis</p>
-
-                        <div class="upload-dropzone" id="modalUploadDropzone">
-                            <div class="dropzone-content">
-                                <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
-                                    <path d="M12 15V3M12 3L8 7M12 3L16 7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-                                    <path d="M2 17L2 19C2 20.1046 2.89543 21 4 21L20 21C21.1046 21 22 20.1046 22 19L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-                                </svg>
-                                <span>Drop video here or click to browse</span>
-                                <small>Supports MP4, MOV, AVI • Max 500MB</small>
-                            </div>
-                            <input type="file" id="modalVideoInput" accept="video/*">
-                        </div>
-
-                        <div class="upload-options">
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="modalQuickProcessing">
-                                <span>Quick analysis (first 300 frames)</span>
-                            </label>
-                        </div>
-                    </div>
-
-                    <div id="modalProcessingArea" style="display: none;">
-                        <div class="processing-spinner">
-                            <div class="spinner-ring"></div>
-                            <div class="spinner-ring"></div>
-                            <div class="spinner-ring"></div>
-                        </div>
-                        <h3 style="text-align: center; margin: 1rem 0;">Analyzing Video</h3>
-                        <p id="modalProcessingStatus" style="text-align: center; color: var(--gray-600); margin-bottom: 1.5rem;">Processing frames and detecting activities...</p>
-                        <div class="progress-bar">
-                            <div class="progress-fill" id="modalProgressFill"></div>
-                        </div>
-                        <span class="progress-text" id="modalProgressText" style="display: block; text-align: center; margin-top: 0.5rem;">0%</span>
-
-                        <div class="modal-actions" style="display: flex; gap: 1rem; justify-content: center; margin-top: 2rem;">
-                            <button id="processInBackgroundBtn" class="btn-primary">
-                                Process in Background
-                            </button>
-                            <button id="cancelProcessingBtn" class="btn-secondary" style="background: var(--gray-500);">
-                                Cancel
-                            </button>
-                        </div>
-                    </div>
-                </div>
+    <main class="chat-container">
+        <!-- Chat Messages Area -->
+        <div class="chat-messages" id="chatMessages">
+            <div class="welcome-message" id="welcomeMessage">
+                <h1 class="brand-title">SiteIQ</h1>
+                <h2>What can I help you analyze?</h2>
+                <p>Upload a construction video to get productivity insights</p>
             </div>
         </div>
-    </div>
 
-    <script src="app.js"></script>
+        <!-- Bottom Input Bar -->
+        <div class="bottom-input-bar">
+            <input type="file" id="fileInput" accept="video/*" hidden>
+            <div class="input-container">
+                <button id="attachBtn" class="attach-btn" title="Upload video">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="12" y1="5" x2="12" y2="19"></line>
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                </button>
+                <input type="text" id="promptInput" placeholder="Ask a question or upload a video...">
+                <button id="submitBtn" class="submit-btn">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="22" y1="2" x2="11" y2="13"></line>
+                        <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                    </svg>
+                </button>
+            </div>
+            <div id="filePreview" class="file-preview hidden">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="23 7 16 12 23 17 23 7"></polygon>
+                    <rect x="1" y="5" width="15" height="14" rx="2" ry="2"></rect>
+                </svg>
+                <span id="fileName"></span>
+                <button id="removeFile" class="remove-file">&times;</button>
+            </div>
+        </div>
+    </main>
+
+    <script src="script.js"></script>
 </body>
 </html>
