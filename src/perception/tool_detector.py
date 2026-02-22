@@ -67,6 +67,18 @@ class ToolDetector:
         "leveling tool",
         "grout bag",
         "float",
+        # Plumbing-specific tools
+        "pipe wrench",
+        "pipe cutter",
+        "torch",
+        "soldering torch",
+        "flux brush",
+        # Marking/documentation tools
+        "marker",
+        "pen",
+        "pencil",
+        "chalk",
+        "clipboard",
     ]
 
     # Workpieces/materials to detect
@@ -95,6 +107,28 @@ class ToolDetector:
         "rebar",
         "masonry wall",
         "masonry unit",
+        # Plumbing-specific materials/workpieces
+        "copper pipe",
+        "pvc pipe",
+        "pex pipe",
+        "pipe fitting",
+        "elbow fitting",
+        "tee fitting",
+        "coupling",
+        "valve",
+        "drain",
+        "trap",
+        "manifold",
+        "solder",
+        "flux",
+        # Packaging/labeling context objects
+        "package",
+        "box",
+        "carton",
+        "label",
+        "tag",
+        "sticker",
+        "clipboard",
     ]
 
     def __init__(
@@ -169,7 +203,6 @@ class ToolDetector:
         except:
             return False
 
-    def detect(self, frame: np.ndarray, tools_only: bool = False) -> DetectionResult:
     def _has_mps(self) -> bool:
         """Check if Apple Metal (MPS) is available."""
         try:
@@ -193,7 +226,7 @@ class ToolDetector:
             return "cuda" if self._has_cuda() else "cpu"
         return "cpu"
 
-    def detect(self, frame: np.ndarray) -> DetectionResult:
+    def detect(self, frame: np.ndarray, tools_only: bool = False) -> DetectionResult:
         """
         Detect tools and workpieces in a frame.
 

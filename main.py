@@ -74,11 +74,14 @@ class SiteIQPipeline:
         # Initialize perception modules
         if self.verbose:
             print("  Loading hand detector...")
-        hand_detector = HandDetector(
-            max_num_hands=2,
-            min_detection_confidence=0.7,
-            min_tracking_confidence=0.5,
-        )
+        # Support both legacy MediaPipe-style and current GroundingDINO-style signatures.
+        try:
+            hand_detector = HandDetector(confidence_threshold=0.25)
+
+        except TypeError:
+            hand_detector = HandDetector(
+                confidence_threshold=0.25,
+            )
 
         if self.verbose:
             print(f"  Loading tool detector ({detector_backend})...")
@@ -124,6 +127,7 @@ class SiteIQPipeline:
         self,
         video_path: str,
         output_video: Optional[str] = None,
+        frame_output: Optional[str] = None,
         max_frames: Optional[int] = None,
     ) -> SessionReport:
         """
@@ -132,6 +136,7 @@ class SiteIQPipeline:
         Args:
             video_path: Path to input video file
             output_video: Optional path to save annotated video
+            frame_output: Optional path to save per-frame JSON data
             max_frames: Optional limit on number of frames to process
 
         Returns:
@@ -204,9 +209,10 @@ class SiteIQPipeline:
                 frame_analysis = self.hoi_detector.analyze_frame(frame, timestamp)
 
                 # Scene context classification
+                frame_workpieces = getattr(frame_analysis, "workpieces", [])
                 detected_labels = (
                     [d.label for d in frame_analysis.tools]
-                    + [d.label for d in frame_analysis.workpieces]
+                    + [d.label for d in frame_workpieces]
                 )
                 scene_result = self.scene_classifier.classify_scene_with_confidence(detected_labels)
                 frame_analysis.metadata["scene"] = scene_result.scene
@@ -238,13 +244,13 @@ class SiteIQPipeline:
                     interaction_status = "near"
 
                 task_evidence = {
-                    "objects": [d.label for d in frame_analysis.tools] + [d.label for d in frame_analysis.workpieces],
+                    "objects": [d.label for d in frame_analysis.tools] + [d.label for d in frame_workpieces],
                     "tools": [d.label for d in frame_analysis.tools],
                     "motion": motion_result.motion_type.value,
                     "interaction": interaction_status,
                     "scene": frame_analysis.metadata.get("scene", "unknown"),
                     "primary_tool": frame_analysis.primary_tool,
-                    "primary_workpiece": frame_analysis.primary_workpiece,
+                    "primary_workpiece": getattr(frame_analysis, "primary_workpiece", None),
                 }
                 task_result = self.task_classifier.classify(task_evidence)
                 frame_analysis.metadata["task_trade"] = task_result["trade"]
@@ -321,6 +327,9 @@ class SiteIQPipeline:
 
         if self.verbose:
             print("✓ Analysis complete!\n")
+
+        if frame_output:
+            self._save_frame_level_report(frame_analyses, frame_output)
 
         return report
 
@@ -402,6 +411,51 @@ class SiteIQPipeline:
 
         if self.verbose:
             print(f"✓ Report saved to: {output_path}")
+
+    def _save_frame_level_report(self, frame_analyses: List, output_path: str):
+        """Save frame-level analysis to a separate JSON file."""
+        frames = []
+        for fa in frame_analyses:
+            if hasattr(fa, "has_active_interaction"):
+                is_active = bool(fa.has_active_interaction())
+            elif hasattr(fa, "is_working"):
+                is_active = bool(fa.is_working())
+            else:
+                is_active = False
+
+            camera_motion = fa.metadata.get("camera_motion")
+            if not camera_motion:
+                camera_motion = getattr(fa, "camera_motion", "unknown")
+
+            frames.append({
+                "frame_index": fa.frame_index,
+                "timestamp_sec": fa.timestamp,
+                "wearer_productivity_status": fa.metadata.get("wearer_productivity_status", "UNOBSERVABLE"),
+                "scene_activity_status": fa.metadata.get("scene_activity_status", "SCENE_UNCLEAR"),
+                "task_name": fa.metadata.get("task_name", "unknown_task"),
+                "task_family": fa.metadata.get("task_family", "unknown"),
+                "task_confidence": fa.metadata.get("task_confidence", 0.0),
+                "task_unknown": fa.metadata.get("task_unknown", True),
+                "scene": fa.metadata.get("scene", "unknown"),
+                "scene_confidence": fa.metadata.get("scene_confidence", 0.0),
+                "motion": camera_motion,
+                "primary_tool": fa.primary_tool,
+                "active_interaction": is_active,
+                "hands_count": len(getattr(fa, "hands", [])),
+                "tools_count": len(getattr(fa, "tools", [])),
+                "interactions_count": len(getattr(fa, "interactions", [])),
+            })
+
+        payload = {
+            "total_frames": len(frames),
+            "frames": frames,
+        }
+
+        with open(output_path, "w") as f:
+            json.dump(payload, f, indent=2)
+
+        if self.verbose:
+            print(f"✓ Frame-level report saved to: {output_path}")
 
     def _build_scene_summary(self, frame_analyses: List) -> Dict[str, object]:
         """Build per-session scene classification summary from frame metadata."""
@@ -486,8 +540,13 @@ class SiteIQPipeline:
         - wearer_productivity_status: POV-centric
         - scene_activity_status: any visible activity in frame context
         """
-        has_hands = len(frame_analysis.hands) > 0
-        has_active_hoi = frame_analysis.has_active_interaction()
+        has_hands = len(getattr(frame_analysis, "hands", [])) > 0
+        if hasattr(frame_analysis, "has_active_interaction"):
+            has_active_hoi = bool(frame_analysis.has_active_interaction())
+        elif hasattr(frame_analysis, "is_working"):
+            has_active_hoi = bool(frame_analysis.is_working())
+        else:
+            has_active_hoi = False
         has_tools = len(frame_analysis.tools) > 0
 
         task_family = str(task_result.get("task_family", "unknown"))
@@ -615,6 +674,11 @@ def main():
         help="Path to save annotated video",
     )
     parser.add_argument(
+        "--frame-output",
+        type=str,
+        help="Path to save frame-level JSON (default: <report_name>_frames.json)",
+    )
+    parser.add_argument(
         "--detector",
         type=str,
         choices=["yolo", "grounding_dino"],
@@ -647,12 +711,25 @@ def main():
         verbose=not args.quiet,
     )
 
+    # Save report
+    if args.output:
+        output_path = args.output
+    else:
+        output_path = Path(args.video).stem + "_report.json"
+
+    if args.frame_output:
+        frame_output_path = args.frame_output
+    else:
+        report_path = Path(output_path)
+        frame_output_path = str(report_path.with_name(f"{report_path.stem}_frames.json"))
+
     # Process video
     start_time = time.time()
 
     report = pipeline.process_video(
         video_path=args.video,
         output_video=args.output_video,
+        frame_output=frame_output_path,
         max_frames=args.max_frames,
     )
 
@@ -660,12 +737,6 @@ def main():
 
     # Print report
     print("\n" + report.get_summary())
-
-    # Save report
-    if args.output:
-        output_path = args.output
-    else:
-        output_path = Path(args.video).stem + "_report.json"
 
     pipeline._save_report(report, output_path)
 

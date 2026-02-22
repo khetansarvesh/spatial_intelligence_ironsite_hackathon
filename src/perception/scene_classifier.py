@@ -28,7 +28,27 @@ class SceneClassifier:
     SCENE_TYPES: Dict[str, List[str]] = {
         "framing": ["metal stud", "lumber", "drywall", "screw", "drill", "level"],
         "electrical": ["wire", "conduit", "junction box", "panel", "cable", "screwdriver"],
-        "plumbing": ["pipe", "fitting", "valve", "wrench", "tube", "pvc"],
+        "plumbing": [
+            "pipe",
+            "copper pipe",
+            "pvc pipe",
+            "pex",
+            "fitting",
+            "elbow",
+            "tee",
+            "coupling",
+            "valve",
+            "wrench",
+            "pipe wrench",
+            "pipe cutter",
+            "pliers",
+            "tube",
+            "drain",
+            "trap",
+            "solder",
+            "flux",
+            "torch",
+        ],
         "finishing": ["paint", "trim", "tape", "sander", "brush", "roller"],
         "masonry": [
             "brick",
@@ -48,7 +68,7 @@ class SceneClassifier:
     SCENE_TOOL_HINTS: Dict[str, Set[str]] = {
         "framing": {"drill", "screw gun", "nail gun", "hammer", "saw", "level"},
         "electrical": {"screwdriver", "pliers", "drill", "wire stripper", "multimeter"},
-        "plumbing": {"wrench", "pliers", "pipe cutter", "drill", "saw"},
+        "plumbing": {"wrench", "pipe wrench", "pliers", "pipe cutter", "torch", "drill", "saw"},
         "finishing": {"sander", "paint sprayer", "brush", "roller", "tape"},
         "masonry": {"trowel", "masonry trowel", "float", "hammer", "level", "mason line"},
     }
@@ -83,7 +103,9 @@ class SceneClassifier:
         """
         Infer scene type and return confidence details.
 
-        Confidence is based on keyword coverage against each scene vocabulary.
+        Confidence combines:
+        - keyword vocabulary coverage for each scene
+        - fraction of current detected objects explained by that scene
         """
         normalized = [o.strip().lower() for o in detected_objects if o and o.strip()]
 
@@ -100,7 +122,9 @@ class SceneClassifier:
 
         for scene, keywords in self.SCENE_TYPES.items():
             matched = self._find_keyword_matches(normalized, keywords)
-            score = len(matched) / max(len(keywords), 1)
+            vocabulary_coverage = len(matched) / max(len(keywords), 1)
+            observed_coverage = len(matched) / max(len(set(normalized)), 1)
+            score = (0.4 * vocabulary_coverage) + (0.6 * observed_coverage)
             scene_scores[scene] = score
             scene_matches[scene] = matched
 

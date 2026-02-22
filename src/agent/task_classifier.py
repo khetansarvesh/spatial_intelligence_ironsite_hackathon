@@ -212,6 +212,41 @@ class TaskClassifier:
                 )
             )
 
+        # Plumbing tasks
+        if has(["pipe", "copper pipe", "pvc pipe", "pex", "fitting", "elbow", "tee", "coupling", "valve"]):
+            if has(["torch", "solder", "flux"]) and interactions in {"holding", "reaching"}:
+                return asdict(
+                    TaskClassification(
+                        trade="plumbing",
+                        task_family="tool_operation",
+                        task_name="join_or_solder_pipe",
+                        confidence=0.84,
+                        reason="Pipe/fitting evidence with soldering-related cues and active interaction.",
+                        unknown_flag=False,
+                    )
+                )
+            if interactions in {"holding", "reaching", "near"}:
+                return asdict(
+                    TaskClassification(
+                        trade="plumbing",
+                        task_family="positioning_alignment",
+                        task_name="align_or_fit_pipe",
+                        confidence=0.78,
+                        reason="Pipe/fitting evidence with active hand interaction indicates fit-up/alignment.",
+                        unknown_flag=False,
+                    )
+                )
+            return asdict(
+                TaskClassification(
+                    trade="plumbing",
+                    task_family="material_handling",
+                    task_name="handle_pipe_or_fittings",
+                    confidence=0.66,
+                    reason="Plumbing components present without strong operation cue.",
+                    unknown_flag=False,
+                )
+            )
+
         # Masonry tasks
         if has(["mortar", "trowel"]) and interactions in {"holding", "reaching"}:
             return asdict(
@@ -245,6 +280,30 @@ class TaskClassifier:
                     task_name="wire_or_panel_work",
                     confidence=0.64,
                     reason="Electrical object evidence present in segment.",
+                    unknown_flag=False,
+                )
+            )
+
+        # Documentation / package marking tasks
+        if has(["marker", "pen", "pencil", "chalk"]) and has(["package", "box", "carton", "label", "tag", "sticker"]):
+            return asdict(
+                TaskClassification(
+                    trade="general_construction",
+                    task_family="inspection_verification",
+                    task_name="mark_or_label_package",
+                    confidence=0.74,
+                    reason="Marking tool plus package/label evidence suggests writing or labeling task.",
+                    unknown_flag=False,
+                )
+            )
+        if has(["clipboard", "label", "tag", "sticker"]) and interactions in {"holding", "reaching", "near"}:
+            return asdict(
+                TaskClassification(
+                    trade="general_construction",
+                    task_family="inspection_verification",
+                    task_name="record_or_verify_item",
+                    confidence=0.66,
+                    reason="Checklist/label context with hand interaction suggests recording or verification.",
                     unknown_flag=False,
                 )
             )

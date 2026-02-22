@@ -102,9 +102,20 @@ class ActivityClassifier:
             (ActivityState, confidence)
         """
         # Extract features from HOI analysis
-        has_hands = len(analysis.hands) > 0
-        has_active_interaction = analysis.has_active_interaction()
-        held_tools = analysis.get_held_tools()
+        has_hands = len(getattr(analysis, "hands", [])) > 0
+        if hasattr(analysis, "has_active_interaction"):
+            has_active_interaction = bool(analysis.has_active_interaction())
+        elif hasattr(analysis, "is_working"):
+            has_active_interaction = bool(analysis.is_working())
+        else:
+            has_active_interaction = False
+
+        if hasattr(analysis, "get_held_tools"):
+            held_tools = analysis.get_held_tools()
+        elif hasattr(analysis, "get_active_tools"):
+            held_tools = analysis.get_active_tools()
+        else:
+            held_tools = [getattr(d, "label", "") for d in getattr(analysis, "tools", [])]
         has_tool = len(held_tools) > 0
         primary_tool = analysis.primary_tool
         task_family = str(analysis.metadata.get("task_family", "unknown"))
