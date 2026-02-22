@@ -62,6 +62,20 @@ class SceneClassifier:
             "masonry wall",
             "rebar",
         ],
+        "welding": [
+            "welding torch",
+            "welder",
+            "welding machine",
+            "electrode",
+            "welding rod",
+            "arc",
+            "spark",
+            "weld bead",
+            "welding mask",
+            "welding helmet",
+            "metal joint",
+            "steel plate",
+        ],
     }
 
     # Tool compatibility map used by validate_tool_for_scene()
@@ -71,6 +85,7 @@ class SceneClassifier:
         "plumbing": {"wrench", "pipe wrench", "pliers", "pipe cutter", "torch", "drill", "saw"},
         "finishing": {"sander", "paint sprayer", "brush", "roller", "tape"},
         "masonry": {"trowel", "masonry trowel", "float", "hammer", "level", "mason line"},
+        "welding": {"welding torch", "welder", "welding machine", "electrode holder", "grinder"},
     }
 
     def __init__(self, min_confidence: float = 0.25):

@@ -73,6 +73,14 @@ class ToolDetector:
         "torch",
         "soldering torch",
         "flux brush",
+        # Welding-specific tools
+        "welding torch",
+        "welder",
+        "welding machine",
+        "electrode holder",
+        "welding helmet",
+        "welding mask",
+        "angle grinder",
         # Marking/documentation tools
         "marker",
         "pen",
@@ -121,6 +129,16 @@ class ToolDetector:
         "manifold",
         "solder",
         "flux",
+        # Welding-specific materials/workpieces
+        "electrode",
+        "welding rod",
+        "weld bead",
+        "metal joint",
+        "steel plate",
+        "steel beam",
+        "metal frame",
+        "spark",
+        "arc",
         # Packaging/labeling context objects
         "package",
         "box",

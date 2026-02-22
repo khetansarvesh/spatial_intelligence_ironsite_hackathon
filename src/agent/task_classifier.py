@@ -115,6 +115,10 @@ class TaskClassifier:
             if not self.model:
                 self.model = "claude-3-5-sonnet-20241022"
 
+        # Persistence state for documentation/marking override.
+        self._marking_streak = 0
+        self._marking_hold = 0
+
     def classify(self, evidence: Dict[str, Any]) -> Dict[str, Any]:
         """Return constrained task classification result."""
         llm_result: Optional[Dict[str, Any]] = None
@@ -188,6 +192,31 @@ class TaskClassifier:
 
         has = lambda terms: any(any(t in o for o in objects + tools) for t in terms)
 
+        # Persistent override: documentation/marking
+        has_marking_tool = has(["marker", "pen", "pencil", "chalk"])
+        has_doc_surface = has(["clipboard", "sheet", "paper", "checklist", "form", "notebook"])
+        writing_signal = has_marking_tool and has_doc_surface
+
+        if writing_signal:
+            self._marking_streak += 1
+            self._marking_hold = 3
+        else:
+            self._marking_streak = max(0, self._marking_streak - 1)
+            self._marking_hold = max(0, self._marking_hold - 1)
+
+        if self._marking_streak >= 3 or self._marking_hold > 0:
+            task_name = "mark_or_label_package" if has(["package", "box", "carton", "label", "tag", "sticker"]) else "record_or_verify_item"
+            return asdict(
+                TaskClassification(
+                    trade="general_construction",
+                    task_family="inspection_verification",
+                    task_name=task_name,
+                    confidence=0.82 if self._marking_streak >= 3 else 0.74,
+                    reason="Persistent pen/marker with clipboard/sheet evidence indicates documentation/marking.",
+                    unknown_flag=False,
+                )
+            )
+
         # Travel / transport
         if motion in {"walking", "moving"} and has(["wheelbarrow", "cart"]):
             return asdict(
@@ -208,6 +237,42 @@ class TaskClassifier:
                     task_name="walk_between_zones",
                     confidence=0.72,
                     reason="Consistent walking motion without strong tool-operation evidence.",
+                    unknown_flag=False,
+                )
+            )
+
+        # Welding tasks
+        if has(["welding torch", "welder", "welding machine", "electrode", "welding rod", "arc", "spark", "weld bead"]):
+            if interactions in {"holding", "reaching"}:
+                return asdict(
+                    TaskClassification(
+                        trade="welding",
+                        task_family="tool_operation",
+                        task_name="perform_weld",
+                        confidence=0.86,
+                        reason="Welding tool/material cues with active interaction indicate welding operation.",
+                        unknown_flag=False,
+                    )
+                )
+            return asdict(
+                TaskClassification(
+                    trade="welding",
+                    task_family="setup_cleanup",
+                    task_name="setup_welding_station",
+                    confidence=0.68,
+                    reason="Welding cues present without strong active interaction signal.",
+                    unknown_flag=False,
+                )
+            )
+
+        if has(["metal joint", "steel plate", "steel beam", "metal frame"]) and has(["grinder", "angle grinder"]):
+            return asdict(
+                TaskClassification(
+                    trade="welding",
+                    task_family="tool_operation",
+                    task_name="prep_or_grind_joint",
+                    confidence=0.76,
+                    reason="Metal-joint context with grinder cues indicates weld prep/finishing.",
                     unknown_flag=False,
                 )
             )

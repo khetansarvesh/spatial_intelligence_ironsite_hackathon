@@ -550,22 +550,38 @@ class SiteIQPipeline:
         has_tools = len(frame_analysis.tools) > 0
 
         task_family = str(task_result.get("task_family", "unknown"))
+        task_name = str(task_result.get("task_name", "unknown_task"))
         task_conf = float(task_result.get("confidence", 0.0))
         strong_task = task_family not in {"unknown", "idle"} and task_conf >= 0.65
+        writing_tasks = {"mark_or_label_package", "record_or_verify_item"}
+        is_writing_task = (
+            task_family == "inspection_verification"
+            and task_name in writing_tasks
+            and task_conf >= 0.6
+        )
 
-        # Wearer-centric status
-        if has_active_hoi:
+        # Wearer-centric status (motion-first, task-independent)
+        motion = str(motion_type).lower()
+        if is_writing_task:
             wearer = "ACTIVE"
-        elif not has_hands and not has_tools and motion_type in {"stable", "unknown"}:
-            wearer = "UNOBSERVABLE"
-        elif motion_type == "walking":
-            wearer = "ACTIVE_TRAVEL"
-        elif strong_task:
+        elif motion == "walking":
             wearer = "ACTIVE_CONTEXTUAL"
-        elif has_hands:
-            wearer = "IDLE"
+        elif motion in {"rhythmic", "panning"}:
+            wearer = "ACTIVE"
+        elif motion == "stable":
+            if has_active_hoi:
+                wearer = "ACTIVE"
+            elif has_hands:
+                wearer = "IDLE"
+            else:
+                wearer = "UNOBSERVABLE"
         else:
-            wearer = "UNOBSERVABLE"
+            if has_active_hoi:
+                wearer = "ACTIVE"
+            elif has_hands:
+                wearer = "IDLE"
+            else:
+                wearer = "UNOBSERVABLE"
 
         # Scene-level activity status (includes visible non-POV activity cues)
         scene = str(frame_analysis.metadata.get("scene", "unknown"))
