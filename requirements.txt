@@ -40,6 +40,7 @@ ultralytics>=8.0.0
 # ============================================
 openai>=1.0.0
 anthropic>=0.18.0
+dspy-ai>=2.4.0  # DSPy for CodeAct agent
 
 # ============================================
 # Demo & Visualization
